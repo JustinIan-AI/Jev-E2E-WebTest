@@ -1,9 +1,10 @@
 /**
  * §4.2 / §8.1 Executor —— 逐步确定性执行状态机。
  *
- * 每步固定管线：resolveTarget → verifyFreshness → dispatch → （失败分流）
- * → postcondition。确定性路径禁止 JEV（本模块不持有任何模型引用；L3 由
- * Task 12 在解析层接入）。
+ * 每步固定管线：resolveTarget（L1→L2→L3）→ verifyFreshness → dispatch
+ * → （失败分流）→ postcondition。确定性路径（未注入 options.decision）绝不
+ * 持有可调用 Provider（TR-12.2）；L3 仅在 L1/L2 均未命中时由 resolve-l3
+ * 编排发起（唯一模型介入点，每 step 至多一次）。
  *
  * Mutation 安全铁律（TR-6.2）：
  *  - ambiguous / 已派发超时 / nav_blocked / irreversible 任一失败 → 立即 BLOCKED，
@@ -21,6 +22,9 @@ import type {
 } from '../engine-provider/index.js';
 import { resolveDeterministic } from './resolve.js';
 import { ensureFresh, type FreshnessCapable } from './freshness.js';
+import { resolveWithL3, type DecisionRecord } from './resolve-l3.js';
+import type { DecisionBudget } from '../adapters/jev/budget.js';
+import type { DecisionOp, JevDecisionProvider } from '../adapters/jev/types.js';
 
 /** Executor 消费的类型化步视图（Contract 加载产物在编排层映射为本形状）。 */
 export interface ExecutorStep {
@@ -56,6 +60,17 @@ export type BlockReason =
 export interface CaseResult {
   status: 'completed' | 'blocked';
   reason?: BlockReason;
+  /** Task 12：L3 决策审计（状态/拒绝原因/usage/latency）；仅发生决策尝试时携带。 */
+  decisions?: DecisionRecord[];
+}
+
+/** Task 12：L3 决策能力（显式注入；未注入 = 纯确定性路径，绝不持有 Provider）。 */
+export interface DecisionCapability {
+  provider: JevDecisionProvider;
+  /** §7.4 预算（max_requests/max_cost，发请求前最坏情况预留）。 */
+  budget?: DecisionBudget;
+  /** 观测脱敏已知明文（进 decide state 前替换 [REDACTED]）。 */
+  secrets?: readonly string[];
 }
 
 export interface ExecuteCaseOptions {
@@ -64,6 +79,8 @@ export interface ExecuteCaseOptions {
    * 返回 true 表示环境已修复，允许在同一步重新派发一次。
    */
   recover?: () => Promise<boolean>;
+  /** L3 语义决策（唯一模型介入点）；缺省 → 纯 L1/L2 确定性执行（TR-12.2）。 */
+  decision?: DecisionCapability;
 }
 
 /** §3.5 唯一映射：ActionResult × risk → 是否可 recovery / 否则的 BLOCKED 原因。 */
@@ -107,8 +124,10 @@ type ExecutorProvider = EngineProvider & FreshnessCapable;
 const MAX_RECOVERY_PER_STEP = 1;
 const MAX_RECOVERY_PER_CASE = 3;
 
-function blocked(reason: BlockReason): CaseResult {
-  return { status: 'blocked', reason };
+function blocked(reason: BlockReason, decisions?: DecisionRecord[]): CaseResult {
+  return decisions && decisions.length > 0
+    ? { status: 'blocked', reason, decisions }
+    : { status: 'blocked', reason };
 }
 
 function needsTarget(kind: Action['kind']): boolean {
@@ -156,19 +175,46 @@ export async function executeCase(
   options: ExecuteCaseOptions = {},
 ): Promise<CaseResult> {
   let caseRecoveries = 0;
+  /** Case 级 L3 决策审计（跨步骤累积）。 */
+  const decisions: DecisionRecord[] = [];
 
-  for (const step of c.steps) {
-    // ① 定位（L1→L2 确定性串行）+ ② Freshness（失效只重解析一次）。
+  for (const [stepIndex, step] of c.steps.entries()) {
+    // ① 定位（L1→L2 确定性串行，均未命中才 L3）+ ② Freshness（失效只重解析一次）。
     let resolved: ResolveResult | null = null;
     if (needsTarget(step.action)) {
-      if (!step.target) return blocked('decision');
+      if (!step.target) return blocked('decision', decisions);
 
       const initial = await resolveDeterministic(provider, step.target);
-      if (initial.status === 'ambiguous') return blocked('ambiguity');
-      if (initial.status !== 'resolved') return blocked('decision');
+      if (initial.status === 'ambiguous') return blocked('ambiguity', decisions);
 
-      const freshness = await ensureFresh(provider, step.target, initial);
-      if (freshness.outcome === 'drift') return blocked('drift');
+      let current: ResolveResult;
+      if (initial.status === 'resolved') {
+        current = initial;
+      } else {
+        // §8.1 L3：仅 L1/L2 均未命中时构造候选问题集调用决策 Provider。
+        // 未注入 decision → 确定性路径直接 BLOCKED(decision)，零模型调用（TR-12.2）。
+        if (!options.decision) return blocked('decision', decisions);
+
+        const attempt = await resolveWithL3({
+          provider,
+          decision: options.decision.provider,
+          ...(options.decision.budget ? { budget: options.decision.budget } : {}),
+          target: step.target,
+          ctx: {
+            stepIndex,
+            intent: step.intent,
+            operation: step.action as DecisionOp,
+            risk: step.risk,
+          },
+          ...(options.decision.secrets ? { secrets: options.decision.secrets } : {}),
+        });
+        decisions.push(attempt.record);
+        if (attempt.outcome !== 'resolved') return blocked('decision', decisions);
+        current = attempt.resolved;
+      }
+
+      const freshness = await ensureFresh(provider, step.target, current);
+      if (freshness.outcome === 'drift') return blocked('drift', decisions);
       resolved = freshness.resolved;
     }
 
@@ -182,24 +228,24 @@ export async function executeCase(
       let stepRecoveries = 0;
       while (ar.status !== 'ok') {
         const mapping = classifyFailure(ar, step.risk);
-        if (!mapping.recoverable) return blocked(mapping.blockReason ?? 'decision');
+        if (!mapping.recoverable) return blocked(mapping.blockReason ?? 'decision', decisions);
 
         if (
           stepRecoveries >= MAX_RECOVERY_PER_STEP ||
           caseRecoveries >= MAX_RECOVERY_PER_CASE ||
           !options.recover
         ) {
-          return blocked('recovery');
+          return blocked('recovery', decisions);
         }
 
         const fixed = await options.recover();
         stepRecoveries += 1;
         caseRecoveries += 1;
-        if (!fixed) return blocked('recovery');
+        if (!fixed) return blocked('recovery', decisions);
 
         // Recovery 成功必须以声明的 postcondition 兜底；未声明无法确认系统状态。
         if (!step.postcondition || step.postcondition.length === 0) {
-          return blocked('postcondition');
+          return blocked('postcondition', decisions);
         }
 
         recovered = true;
@@ -217,14 +263,14 @@ export async function executeCase(
           ? raw
           : { ...raw, ...(step.target ? { target: step.target } : {}) };
         const r = await provider.checkAssertion(spec);
-        if (r.status === 'inconclusive') return blocked('evidence');
-        if (!r.passed) return blocked('postcondition');
+        if (r.status === 'inconclusive') return blocked('evidence', decisions);
+        if (!r.passed) return blocked('postcondition', decisions);
       }
     } else if (recovered) {
       // 理论不可达（循环内已拦截），保留防御性分支。
-      return blocked('postcondition');
+      return blocked('postcondition', decisions);
     }
   }
 
-  return { status: 'completed' };
+  return decisions.length > 0 ? { status: 'completed', decisions } : { status: 'completed' };
 }

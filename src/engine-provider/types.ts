@@ -23,7 +23,12 @@ export interface SemanticTarget {
   allow_multiple?: boolean;
 }
 
-export type ResolveMode = 'L1' | 'L2';
+/**
+ * 定位级。L3 模式契约（Task 12）：引擎只做候选枚举——返回
+ * `{ status: 'miss', candidates }`（候选由引擎代码生成，绝不返回 resolved）；
+ * 语义决策由 runtime/resolve-l3 编排，模型是唯一介入点。
+ */
+export type ResolveMode = 'L1' | 'L2' | 'L3';
 export type ResolveStatus = 'miss' | 'resolved' | 'ambiguous';
 
 /** 统一形状的 ResolvedTarget（Action.schema target 字段）。 */
@@ -35,10 +40,12 @@ export interface ResolvedTarget {
 
 export interface ResolveResult {
   status: ResolveStatus;
-  /** 命中所用定位级（L1 role/label/text；L2 指纹）。 */
+  /** 命中所用定位级（L1 role/label/text；L2 指纹；L3 语义决策）。 */
   mode?: ResolveMode;
   elementId?: string | number;
   strategy?: ResolvedTarget['strategy'];
+  /** L3 决策置信度（仅 strategy='model' 时携带；来自 validate_choice 校验后的应答）。 */
+  confidence?: number;
   /** ambiguous 时的候选数（>1）。 */
   count?: number;
   /** 候选编号（L3 候选集由本层代码生成，Task 12 使用）。 */

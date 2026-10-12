@@ -184,7 +184,10 @@
   - 如实保留项：M1 描述的「无模型跑通一条确定性用例」的**端到端 `idwth run` CLI 闭环**尚未经真实命令贯通——默认 run handler 按计划在 Task 14（e2e Provider 与六重绑定接线）才真实化，当前以手工 seed 的真实归档（同 writeOnlineJudgeArtifacts/writeReportArtifacts 生产代码路径）验证了从证据到报告的下游全链路。M1 出口的最终命令级闭环证据将在 Task 14 run handler 落地后补齐并回链此处。
 
 ## Task 12: 实现 JEV Adapter、Mock Provider 与 L3 语义动作
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-12：TDD 全程——RED 先行失败→GREEN 最小实现→全量 342/342 通过 + tsc/build 干净）
+  - RED 证据（模块不存在时先失败）：`tests/unit/validate-choice.test.ts`（~30 例：AC-05 合法性优先于分级阈值 validate_choice 校验次序、越界/非法概率/注入/低置信度拒绝、预算 5 例）、`tests/integration/semantic-action.test.ts`（~32 例：L1/L2 miss→恰 1 次 decide、候选编号代码给定、usage/latency 审计、state 脱敏、零派发 BLOCKED(decision)、TR-12.2 未接线零隐式调用/断网 provider_error、预算发请求前预留）、`tests/unit/jev-http.test.ts`（8 例传输层）。
+  - GREEN 证据：`src/adapters/jev/{types,validate,budget,mock,jev-http}.ts`（ConfidenceThresholds reversible 0.60 / irreversible 0.90，DD §7.2/§7.3）、`src/runtime/resolve-l3.ts`（L3 编排：候选来自 `provider.resolve(target,'L3')`、state 经 redactObservation、预算最坏情况预留、validateChoiceAnswer、未请求 question 应答忽略）、`src/runtime/executor.ts`（`options.decision` 显式注入，未注入=纯确定性路径零 Provider，TR-12.2）、`src/engine-provider/types.ts`（ResolveMode 增 L3，ResolveResult 增 confidence?）。
+  - 验证：`npx vitest run` 25 文件 342/342 通过；`npx tsc --noEmit` exit=0；`npm run build` 通过。
 - **Priority**: high
 - **Depends On**: Task 6, Task 9
 - **Description**:

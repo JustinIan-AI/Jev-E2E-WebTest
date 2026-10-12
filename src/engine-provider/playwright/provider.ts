@@ -11,6 +11,7 @@ import {
   type ArtifactRef,
   type EngineProvider,
   type Observation,
+  type ResolveMode,
   type ResolveResult,
   type ResolvedTarget,
   type SemanticTarget,
@@ -176,8 +177,13 @@ export class PlaywrightProvider implements EngineProvider {
 
   // ---------------------------------------------------------------- EngineProvider
 
-  async resolve(target: SemanticTarget, mode: 'L1' | 'L2'): Promise<ResolveResult> {
+  async resolve(target: SemanticTarget, mode: ResolveMode): Promise<ResolveResult> {
     const page = this.activePage();
+    if (mode === 'L3') {
+      // L3 候选枚举（模糊语义匹配 + registry 登记）由 Task 14 e2e 集成交付；
+      // 当前明确返回空候选，绝不在引擎侧伪装 resolved（决策只能由编排层发起）。
+      return { status: 'miss', candidates: [] };
+    }
     if (mode === 'L2') return this.resolveByFingerprint(page, target);
 
     const exact = target.match !== 'substring';

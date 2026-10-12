@@ -26,3 +26,6 @@ export * from './redaction.js';
 // Task 9: Judge 七原语纯函数判定、verdict_hash 与离线重算。
 export * from './judge/index.js';
 export * from './judge/recompute.js';
+
+// Task 12: L3 语义决策编排（JEV 唯一模型介入点；仅 L1/L2 未命中时触发）。
+export * from './resolve-l3.js';
