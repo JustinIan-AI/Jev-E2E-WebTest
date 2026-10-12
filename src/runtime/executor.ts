@@ -320,7 +320,16 @@ export async function executeCase(
           ? raw
           : { ...raw, ...(step.target ? { target: step.target } : {}) };
         const r = await provider.checkAssertion(spec);
-        if (r.status === 'inconclusive') return blocked('evidence', decisions, recoveries);
+        // TR-14.2（DD-32）：引擎判不出来（上游 ASSERTION_INCONCLUSIVE 被吸附为
+        // inconclusive + decision）→ BLOCKED(decision)，不得降级为 evidence、
+        // 更不得记 FAIL；本层自身的断言无法求值仍为 BLOCKED(evidence)（§8.2）。
+        if (r.status === 'inconclusive') {
+          return blocked(
+            r.blockedReason === 'decision' ? 'decision' : 'evidence',
+            decisions,
+            recoveries,
+          );
+        }
         if (!r.passed) return blocked('postcondition', decisions, recoveries);
       }
     } else if (recovered) {

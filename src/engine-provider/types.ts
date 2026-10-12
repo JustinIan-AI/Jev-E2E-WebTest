@@ -211,6 +211,11 @@ export interface AssertionResult {
   status: AssertionResultStatus;
   /** 不可判定（如 count>1 未声明 allow_multiple）→ BLOCKED(ambiguity/decision)。 */
   blockedReason?: 'ambiguity' | 'decision' | 'drift';
+  /**
+   * Task 14 / DD-32：上游错误码吸附后的附加诊断（如 ASSERTION_INCONCLUSIVE）。
+   * 仅保留诊断价值，绝不改变 IDWTH 主状态（A10：不报假 FAIL）。
+   */
+  upstreamErrorCode?: string;
   actual?: unknown;
   message?: string;
 }

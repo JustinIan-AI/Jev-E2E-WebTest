@@ -496,4 +496,32 @@ describe('TR-6.1: 逐步执行状态机', () => {
     expect(result.status).toBe('blocked');
     expect(result.reason).toBe('evidence');
   });
+
+  it('TR-14.2: 引擎判不出来（inconclusive + blockedReason=decision）→ BLOCKED(decision) 不降级 evidence', async () => {
+    // 上游 ASSERTION_INCONCLUSIVE 被吸附器改判为 inconclusive + decision；
+    // executor 必须尊重该标记（§8.2：上游判不出 ≠ 断言无法求值）。
+    const rt = scriptedRuntime([
+      {
+        resolve: { status: 'resolved' },
+        fresh: true,
+        act: [okClick],
+        postcondition: {
+          kind: 'visible',
+          passed: false,
+          status: 'inconclusive',
+          blockedReason: 'decision',
+          upstreamErrorCode: 'ASSERTION_INCONCLUSIVE',
+        } as AssertionResult,
+      },
+    ]);
+    const result = await executeCase(
+      {
+        id: 'a.b',
+        steps: [step({ action: 'click', risk: 'reversible', postcondition: [{ kind: 'visible' }] })],
+      },
+      rt.provider,
+    );
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('decision');
+  });
 });

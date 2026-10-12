@@ -217,7 +217,7 @@
   - 验证：A4 集成测试确认篡改版本从未被求值（引擎只收到原始 visible 断言）→ BLOCKED(postcondition) + 审计入档；A9 L3 接受合理错误候选派发成功被步级断言捕获（零 recovery）；上限两例均 BLOCKED(recovery) 且第二次恢复从未执行。全量 354/354 通过（27 文件，新增 12 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 14: 集成 e2e EngineProvider、错误码吸附与恢复触发权控制
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-12：TDD——31 个新测试先行（RED：e2e 模块缺失收集失败 ×4、executor decision-inconclusive 断言失败）→ GREEN 实现 E2eProvider + 吸附器 + 版本隔离 + executor 接线；全量 385/385（31 文件）、typecheck/build 全绿）
 - **Priority**: high
 - **Depends On**: Task 4, Task 12
 - **Description**:
@@ -228,6 +228,12 @@
 - **Test Requirements**:
   - `rule` TR-14.1: e2e 与 Playwright Provider 通过同一套 EngineProvider 契约测试，切换后 Judge 主结论不变；证据为 Provider 契约测试。
   - `rule` TR-14.2: A10 场景不会被上游记为 FAIL，陈旧失败不会触发引擎自动 heal；证据为错误码吸附和恢复权集成测试。
+- **TDD 证据**:
+  - RED：[e2e-error-adapter.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/e2e-error-adapter.test.ts)（6 例吸附映射）+ [e2e-engine-cache.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/e2e-engine-cache.test.ts)（6 例版本隔离）+ [e2e-provider.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/e2e-provider.test.ts)（12 例 connect 硬约束/吸附/候选/dispose）+ [executor.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/executor.test.ts)（+1：inconclusive+decision → BLOCKED(decision)）+ [e2e-provider.test.ts（契约）](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/e2e-provider.test.ts)（6 例双腿套件/主结论不变/A10/恢复权/绑定）先行失败——e2e 模块不存在收集失败 ×4、executor 新例 'evidence' ≠ 'decision'。
+  - GREEN：新增 [upstream.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/e2e/upstream.ts)（上游 @e2e-dev/web 契约形状，实例注入——上游包不可安装，接口即接缝）、[error-adapter.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/e2e/error-adapter.ts)（DD-32 吸附器：ASSERTION_INCONCLUSIVE → inconclusive/decision + upstreamErrorCode，普通 failed 通道保留）、[engine-cache.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/e2e/engine-cache.ts)（DD-35 版本目录隔离 + 不匹配不沿用，Task 15 消费）、[provider.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/e2e/provider.ts)（E2eProvider：connect 显式关闭 autoHeal/autoRetry 并回读校验 fail-closed（DD-36）、version 空值拒绝（六重绑定⑥）、候选集本层编号（registry 回译上游 id）、L2 因上游扁平元素表无法诚实比对一律 miss、observe/act/checkAssertion/screenshot/trace/dispose/verifyFreshness 全契约映射）；[types.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/types.ts) AssertionResult += upstreamErrorCode；[executor.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/executor.ts) postcondition inconclusive 尊重 blockedReason='decision' → BLOCKED(decision)（本层无法求值仍 BLOCKED(evidence)，§8.2 两行分明）；[index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/index.ts) 导出。
+  - TR-14.1 证据：[engine-provider-suite.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/engine-provider-suite.ts) 共享契约套件（11 组断言：id/version、observe 形状、L1 resolved/miss/ambiguous、L3 候选、act 派发、三原语断言、allowlist、产物、dispose 幂等）——e2e（内存上游替身 [upstream-e2e-engine.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/helpers/upstream-e2e-engine.ts)，含拒绝让渡配置/自愈计数/A10 注入）与 Playwright（真实 Chrome）双腿同套通过；同一 ExecutorCase 切换 Provider 主结论不变（happy → completed、miss → blocked/decision 双腿相等）。
+  - TR-14.2 证据：A10 —— 上游 `{status:'failed', errorCode:'ASSERTION_INCONCLUSIVE'}` → provider 层 inconclusive/decision/upstreamErrorCode、执行层 BLOCKED(decision)（非 FAIL）；恢复权 —— 陈旧失败（可解析但派发失败）经 Runtime recover 编排恰好 1 次 → BLOCKED(recovery)，engine.healCalls===0 且 config 回读 `{autoHeal:false, autoRetry:false}`；绑定接入 —— provider.version 进 engine_provider_version、版本漂移 → downgrade_l1_l3（driftedKeys 含第⑥项）、缓存目录按版本隔离且不匹配不沿用。
+  - 验证：全量 385/385 通过（31 文件，新增 31 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 15: 实现 replay verify/heal、漂移检测与引擎缓存交付
 - **Status**: `pending`
