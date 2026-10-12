@@ -94,8 +94,8 @@
   - GREEN：[types.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/types.ts) ActionResult 8 态（ok/not_found/ambiguous/disabled/covered/timeout/nav_blocked/error，均携带 dispatched）+ actionTimeoutMs；[provider.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/playwright/provider.ts) act() 8 态重写与 Playwright 异常分类（遮挡→covered/未派发，TimeoutError 保守 dispatched=true）；[executor.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/executor.ts) §8.1 状态机（歧义/失效单次重解析/失败分流/recovery 1 次每步、3 次每例/postcondition 闸门，inconclusive→BLOCKED(evidence)）。
   - 验证：全量 108/108 通过（12 文件，含 TR-6.2 真实副作用计数=1、covered 计数=0），`tsc --noEmit` 与 `npm run build` 通过。
 
-## Task 7: 实现 run 级隔离、双标识论域收窄与 cleanup 终态
-- **Status**: `pending`
+## Task 7: 实现 run 级隔离、双标识论域收窄与 cleanup 终态【✅ 已完成】
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: Task 3, Task 4
 - **Description**:
@@ -107,6 +107,10 @@
 - **Test Requirements**:
   - `rule` TR-7.1: 第二次运行不会因上次残留 PASS，系统自动注入对象（如 K8s 的 `kube-root-ca.crt`）不会造成假 FAIL；证据为作用域集成测试。
   - `rule` TR-7.2: cleanup 以 404 为完成判据，DELETE 后只进行只读轮询，重复 cleanup 可安全重入；证据为 cleanup 测试结果。
+- **TDD 证据**:
+  - RED：[scope.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/scope.test.ts) 9 例（createRunId/expandTemplate/instantiateFixtures/narrowRunCreatedSet）+ [cleanup.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/cleanup.test.ts) 6 例（§8.1 五规则 + 默认 2s/60s）+ [run-scope.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/run-scope.test.ts) TR-7.1 作用域集成 4 例（残留不假 PASS、注入不假 FAIL、批次内不串扰、cleanup 后可重跑）先行失败。
+  - GREEN：[scope.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/scope.ts)（8 位 hex runId、`${runId}`+`${contractId}` 两级替换、名字/标签双标识论域收窄 + excluded_system_objects，禁止时间戳判据）；[types.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/tools/backend/types.ts) BackendAdapter/EvidenceProvider 契约 + MutableBackendAdapter（DD-44：cleanup 复用 adapter 不新增可替换边界）；[mock.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/tools/backend/mock.ts) V1 内存 mock（seed/query/delete/get + 调用审计）；[cleanup.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/cleanup.ts) DELETE 一次 + 只读 GET 轮询 404、404-on-delete 幂等、超时 BLOCKED(cleanup)、默认 2s/60s。
+  - 验证：全量 127/127 通过（15 文件，新增 19 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 8: 实现 Evidence 分级、安全采集与截图/Trace 脱敏
 - **Status**: `pending`

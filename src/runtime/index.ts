@@ -14,3 +14,7 @@ export * from './bindings/check.js';
 
 // Task 6: 执行状态机（8 态分流 / 单次重解析 / 恢复上限 / postcondition 闸门）。
 export * from './executor.js';
+
+// Task 7: run 级作用域（双标识论域收窄）与 finally cleanup 终态轮询。
+export * from './scope.js';
+export * from './cleanup.js';
