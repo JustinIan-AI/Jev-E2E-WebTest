@@ -123,3 +123,79 @@ export function computeSuiteMetrics(
     greenRate: cases.length > 0 ? verdictCounts.PASS / cases.length : null,
   };
 }
+
+/* ── Task 17 / TR-17.2：双 Provider 对照指标 ───────────────────────────── */
+
+export interface ProviderRunInput {
+  caseId: string;
+  verdict: Verdict;
+  stepRecords: readonly StepExecutionRecord[];
+  decisions?: readonly DecisionRecord[];
+  stability?: { flaky: boolean };
+}
+
+export interface ProviderComparisonMetrics {
+  providerId: string;
+  casesRun: number;
+  verdicts: Record<Verdict, number>;
+  /** 定位尝试数（带目标且产出 resolve 记录的步）。 */
+  resolveAttempts: number;
+  /** resolved 数。 */
+  resolveHits: number;
+  /** 定位命中率 = resolveHits / resolveAttempts（attempts 为 0 时记 0）。 */
+  hitRate: number;
+  /** 误命中观测：resolved 但动作派发失败（定位到了错误/不可用目标的代理指标）。 */
+  misfires: number;
+  /** 误命中率 = misfires / resolveHits（hits 为 0 时记 0）。 */
+  misfireRate: number;
+  /** 成本观测：模型决策调用次数（确定性路径 ≡ 0）。 */
+  modelInvocations: number;
+  /** 决策延迟中位数（全部 case 的 latencyMs 样本；无样本为 null）。 */
+  decisionLatencyMedianMs: number | null;
+  /** stability 判定 flaky 的 case 数。 */
+  flakyCases: number;
+}
+
+export function computeProviderComparison(
+  providerId: string,
+  runs: ReadonlyArray<ProviderRunInput>,
+): ProviderComparisonMetrics {
+  const verdicts: Record<Verdict, number> = { PASS: 0, FAIL: 0, BLOCKED: 0 };
+  let resolveAttempts = 0;
+  let resolveHits = 0;
+  let misfires = 0;
+  let modelInvocations = 0;
+  let flakyCases = 0;
+  const latencies: number[] = [];
+
+  for (const run of runs) {
+    verdicts[run.verdict] += 1;
+    for (const rec of run.stepRecords) {
+      if (rec.resolve === undefined) continue;
+      resolveAttempts += 1;
+      if (rec.resolve.status === 'resolved') {
+        resolveHits += 1;
+        if (rec.actionResultStatus !== 'ok') misfires += 1;
+      }
+    }
+    for (const d of run.decisions ?? []) {
+      modelInvocations += 1;
+      if (typeof d.latencyMs === 'number') latencies.push(d.latencyMs);
+    }
+    if (run.stability?.flaky === true) flakyCases += 1;
+  }
+
+  return {
+    providerId,
+    casesRun: runs.length,
+    verdicts,
+    resolveAttempts,
+    resolveHits,
+    hitRate: resolveAttempts > 0 ? resolveHits / resolveAttempts : 0,
+    misfires,
+    misfireRate: resolveHits > 0 ? misfires / resolveHits : 0,
+    modelInvocations,
+    decisionLatencyMedianMs: median(latencies),
+    flakyCases,
+  };
+}

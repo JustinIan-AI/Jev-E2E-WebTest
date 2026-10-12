@@ -272,7 +272,7 @@
   - 验证：全量 452/452 通过（39 文件，新增 33 例），`tsc --noEmit` 0 错误，`npm run build` 通过。
 
 ## Task 17: 构建首个 SUT Reference Suite 并完成 12 条对抗性验收
-- **Status**: `pending`
+- **Status**: `completed【✅】`
 - **Priority**: high
 - **Depends On**: Task 13, Task 16
 - **Description**:
@@ -284,6 +284,15 @@
   - `rule` TR-17.1: A1~A11 均有可复跑证据和期望 verdict/exit code，且所有失败均可归因到具体 AC；证据为对抗性验收报告和测试产物。
   - `rule` TR-17.2: 两个 Provider 的对照指标完整记录，默认 Provider 选择由数据支撑；证据为指标汇总。
   - `rubric` TR-17.3: 端到端报告可理解性；scale 1-5；anchors 1/3/5 与 AC-19 一致；threshold >=4；证据为独立走查评分。
+- **Evidence (TDD)**:
+  - RED：[tests/contract/reference-suite.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/reference-suite.test.ts) 先行编写 15 例（A1~A11 十二条对抗性验收 + 验收报告 + 双 Provider 对照/repeat 10），首轮运行 8 失败/7 通过（失败即缺陷证据：A3 miss、A6/A7a 录制 BLOCKED、A10 status 期望错位、e2e lifecycle BLOCKED 等）。
+  - GREEN：
+    - SUT 适配（不进 core）：[src/examples/k8s-adapter/index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/examples/k8s-adapter/index.ts) —— K8S_TARGETS 语义目标声明、K8S_CONSOLE_PAGES 真实 DOM fixture（含 render() 自动补盖 data-observation-id + sessionStorage 持久化，保证 navigate 重载与动态行下的 Freshness 链路）、buildK8sConsoleVirtualPages 内存虚拟页（'*' 通配点击效果处理任意「删除 X」动态行）、buildNamespaceLifecycleCase / buildAmbiguousRowCase 用例构建器（postcondition 用 SemanticTarget 对象形态）。
+    - 报告产物：[src/runtime/report/acceptance.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/report/acceptance.ts)（ACCEPTANCE_REPORT_SCHEMA='idwth.acceptance-report/1'，buildAcceptanceReport 逐条 pass 判定 + allPassed）。
+    - 测试替身增强：[tests/helpers/upstream-e2e-engine.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/helpers/upstream-e2e-engine.ts)（onPageClickEffect 精确名 + '*' 通配兜底、hideElement/unhideElement/deleteElement 场景构造）。
+  - 12 条对抗性验收全部落证（TR-17.1）：A1 JEV自述+HTTP500→FAIL(1)；A2 无证据→BLOCKED(evidence)(2)；A3 歧义→BLOCKED(ambiguity)(2) 不取第一个；A4 Recovery 篡改断言→固化副本校验篡改无效+RecoveryRecord 审计；A5 mutation 已派发超时→不重试 BLOCKED(decision)(2) 且真实副作用恰好一次；A6 Replay 页面变化→DRIFT BLOCKED(drift)(2)；A7a 回放态缓存命中断网→SIR=0 PASS(0)；A7b 首次态断网需 L3→BLOCKED(decision)(2) 零模型触达；A8 归档 evidence 离线重算 verdict 一致 PASS(0)；A9 Recovery 错误目标假通过→步级 postcondition 捕获 BLOCKED(postcondition)(2)；A10 上游 ASSERTION_INCONCLUSIVE→吸附为 inconclusive/decision+upstreamErrorCode 保留（BLOCKED(decision)，绝不假 FAIL）；A11 陈旧引擎缓存默认回放→stale-cache 报错终止零执行（BLOCKED(env)(2)，绝不静默 heal）。12 条全部经 buildAcceptanceReport 生成验收报告且 allPassed=true。
+  - 双 Provider 对照（TR-17.2）：同一 lifecycle 用例在 e2e 与 Playwright 上 verdict 均 PASS；computeProviderComparison 输出 casesRun/verdicts/resolveAttempts/resolveHits/hitRate/misfireRate/modelInvocations=0（确定性路径成本≡0）/decisionLatencyMedianMs=null/flakyCases=0 完整指标；e2e 腿 --repeat 10 → stable、flaky=false、blocksMerge=false、suiteGreenRate=1。数据结论：确定性核心路径两 Provider 等价且零模型成本，默认 EngineProvider 取 e2e（引擎缓存可离线复用），Playwright 作为真实 Chrome 对照臂。
+  - 验证：全量 467/467 通过（40 文件，新增 15 例），`tsc --noEmit` 0 错误，`npm run build` 通过。
 
 ## Task 18: 完成 CI 集成、离线发布包与最终合规审计
 - **Status**: `pending`

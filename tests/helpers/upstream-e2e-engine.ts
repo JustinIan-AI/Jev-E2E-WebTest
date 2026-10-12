@@ -65,6 +65,38 @@ export class UpstreamE2eEngineDouble implements UpstreamE2eEngine {
   };
   currentUrl = 'http://127.0.0.1:1/basic';
 
+  /** Task 17：按页面注册的有状态点击效果（模拟 SPA 状态转换；click ok 后触发）。
+   *  键支持元素名精确匹配与 '*' 通配兜底（动态行如「删除 <ns>」）；效果第二参收元素名。 */
+  private clickEffects: Record<string, Record<string, (engine: UpstreamE2eEngineDouble, elementName?: string) => void>> = {};
+
+  onClickEffect(
+    url: string,
+    elementName: string,
+    effect: (engine: UpstreamE2eEngineDouble, elementName?: string) => void,
+  ): void {
+    (this.clickEffects[url] ??= {})[elementName] = effect;
+  }
+
+  /** 漂移/遮挡场景构造：隐藏第一个 name 匹配的元素（visible=false）。 */
+  hideElement(url: string, elementName: string): void {
+    const el = (this.pages[url] ?? []).find((e) => e.name === elementName);
+    if (el) el.visible = false;
+  }
+
+  /** 恢复场景构造：重新显示第一个 name 匹配的元素。 */
+  unhideElement(url: string, elementName: string): void {
+    const el = (this.pages[url] ?? []).find((e) => e.name === elementName);
+    if (el) el.visible = true;
+  }
+
+  /** 错误恢复场景构造（A9）：移除第一个 name 匹配的元素。 */
+  deleteElement(url: string, elementName: string): void {
+    const page = this.pages[url];
+    if (!page) return;
+    const idx = page.findIndex((e) => e.name === elementName);
+    if (idx >= 0) page.splice(idx, 1);
+  }
+
   private readonly version: string;
   private readonly refuseConfigure: boolean;
   private inconclusive = false;
@@ -184,6 +216,13 @@ export class UpstreamE2eEngineDouble implements UpstreamE2eEngine {
         if (!el.visible) return { status: 'covered', dispatched: false };
         if (request.kind === 'fill' || request.kind === 'select') {
           el.value = request.value ?? '';
+        }
+        if (request.kind === 'click') {
+          // Task 17：click 派发成功后触发注册的页面状态效果（模拟 SPA 行为）；
+          // 先精确匹配元素名，未注册时回落到 '*' 通配（动态行效果）。
+          const effects = this.clickEffects[this.pageKeyOf(this.currentUrl) ?? ''];
+          const effect = effects?.[el.name] ?? effects?.['*'];
+          if (effect) effect(this, el.name);
         }
         return { status: 'ok', dispatched: true };
       }
