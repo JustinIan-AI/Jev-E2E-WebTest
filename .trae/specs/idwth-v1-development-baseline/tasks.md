@@ -34,7 +34,7 @@
   - `rule` TR-2.2: Contract/Action/Strategy/Trace 的合法样例通过校验，非法样例被拒绝，版本兼容性测试通过；证据为契约测试输出。
 
 ## Task 3: 实现 Contract 九条校验、哈希与冻结绑定
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-12：TDD——33 个新测试先行（RED）→ 实现 validate/loader/bindings（GREEN）；九条规则全部可拒绝并归类 config 错误（exit 3 路径），六重绑定 sha256/版本计算与 run 启动降级/固化拒绝/BLOCKED(drift) 三作用点均有测试；全套 8 文件 56 测试通过，typecheck/build 全绿）
 - **Priority**: high
 - **Depends On**: Task 2
 - **Description**:
