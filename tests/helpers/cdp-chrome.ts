@@ -114,7 +114,16 @@ export async function launchCdpChrome(): Promise<CdpChrome> {
 export async function cleanupCdpChrome(chrome: CdpChrome | null): Promise<void> {
   if (!chrome) return;
   await chrome.kill();
-  await rm(chrome.userDataDir, { recursive: true, force: true });
+  // Chrome 退出后可能仍有 profile 尾部写入（Default/ flush），rm 需重试；
+  // 最终失败静默放弃（泄漏 tmpdir 由系统回收），绝不 fail 测试。
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(chrome.userDataDir, { recursive: true, force: true });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
 }
 
 /** 由 ES 模块 URL 推断文件路径（需要读取 fixture html 时用）。 */
