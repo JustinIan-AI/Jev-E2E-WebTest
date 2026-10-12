@@ -29,6 +29,11 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      # Real-Chrome integration suites (engine-provider / reference-suite) launch
+      # Chromium over CDP; the runner needs the browser binary.
+      - name: Install Chromium for browser integration suites
+        run: npx playwright install --with-deps chromium
+
       - name: Typecheck
         run: npm run typecheck
 
