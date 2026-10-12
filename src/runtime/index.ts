@@ -22,3 +22,7 @@ export * from './cleanup.js';
 // Task 8: Evidence 分级存储（内容寻址/外移指针/digest）与安全采集脱敏。
 export * from './evidence-store.js';
 export * from './redaction.js';
+
+// Task 9: Judge 七原语纯函数判定、verdict_hash 与离线重算。
+export * from './judge/index.js';
+export * from './judge/recompute.js';

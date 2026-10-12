@@ -129,8 +129,8 @@
   - GREEN：[redaction.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/redaction.ts)（credential 语义键脱敏 + 已知明文替换 + TreeWalker 第二层遮罩（命中明文替换为 [REDACTED] 黑底黑字 span）+ trace 序列化 + 产物递归扫描）；[evidence-store.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/evidence-store.ts)（`artifact://<runId>/<tier>/<name>`、blobs 内容寻址去重、judgement_set/archived 分目录、run 目录 0700、manifest 实时同步、judgement_set 永不截断、archived 默认 50MB 超限 rename 外移并写指针 JSON、judgementDigest 排序聚合 sha256、写入前强制脱敏）；[screenshot.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/playwright/screenshot.ts)（两层遮罩：先 page.evaluate 文本遮罩后 screenshot 原生 mask，显式 input[type=password/file/hidden]）；[index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/index.ts) barrel 导出。
   - 验证：全量 177/177 通过（18 文件，新增 50 例），`tsc --noEmit` 与 `npm run build` 通过。
 
-## Task 9: 实现 Judge 纯函数、断言原语与离线重算
-- **Status**: `pending`
+## Task 9: 实现 Judge 纯函数、断言原语与离线重算【✅ 已完成】
+- **Status**: `completed【✅】`（2026-10-12：TDD——31 个新测试先行（RED：模块不存在全部加载失败）→ 实现 judge 三文件（GREEN）；七原语/HTTP/backend/state 精确口径、固定优先级、A1 FAIL vs A2 BLOCKED(evidence) 分流、verdict_hash canonical 组成与离线三分类完整性校验全部有测试；全量 20 文件 208 测试通过，typecheck/build 全绿）
 - **Priority**: high
 - **Depends On**: Task 8
 - **Description**:
@@ -141,6 +141,10 @@
 - **Test Requirements**:
   - `rule` TR-9.1: A1、A2、FAIL+无法求值并存等场景均得到规定 verdict，模型自述不能直接产生 PASS/FAIL；证据为 Judge 单元测试。
   - `rule` TR-9.2: 归档 evidence 重算结果与在线 judge_result/hash 一致，损坏证据或绑定异常被明确识别；证据为重算契约测试。
+- **TDD 证据**:
+  - RED：[judge.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/judge.test.ts) 24 例（DOM 七原语精确表：visible/absent/count/value/checked/url/number；HTTP path_prefix/path_equals、within_run 时间窗、evidenceId 归一化、单条不符 FAIL 与多条全不符 BLOCKED(evidence)；backend 按 scope:run；固定优先级：A1 FAIL、A2 有候选无证据 BLOCKED(evidence)、FAIL+无法求值→BLOCKED、FAIL+歧义→BLOCKED、空断言保守 BLOCKED、纯函数同入参同结果；judge_result 形状与 verdict_hash 64hex、三组成任一变化 hash 变、字段重排不变）+ [judge-recompute.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/judge-recompute.test.ts) 7 例（在线写盘→离线重算 match、在线 FAIL（A1）重算一致、篡改 observation blob→EVIDENCE_CORRUPT/HASH_MISMATCH、改写 judge-result.json→HASH_MISMATCH、judge_impl_hash 漂移→BINDING_DRIFT、删 manifest→EVIDENCE_CORRUPT、manifest 名称排序与 sha256 形状）先行失败。
+  - GREEN：[types.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/judge/types.ts)（Verdict/BlockedReason/七原语断言/证据/候选/judge_result 类型契约，模型 candidate 类型隔离）；[index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/judge/index.ts)（七原语精确求值：visible count=0 无候选 FAIL/有候选 unevaluable(evidence)（A2），count/value 多匹配未声明 allow_multiple→ambiguous，value 双侧可解析数值按数值比，url 仅比 pathname，number 1e-9 容差；HTTP：单条状态不符=可观测事实 FAIL（A1）、多条全不匹配取最后一条 BLOCKED(evidence/ambiguous_response)、无匹配 BLOCKED(evidence)；固定优先级 unevaluable→ambiguity→FAIL→PASS；canonical JSON 递归按 key 排序；computeVerdictHash = sha256(canonical(judge_result)‖evidence_digest‖judge_impl_hash)）；[recompute.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/judge/recompute.ts)（writeOnlineJudgeArtifacts 三证据 observation/http/backend 实时落盘+judge-result.json 0600；recomputeJudge 按 manifest→blob sha256→impl 绑定→canonical 逐字段一致→hash 重算顺序校验，输出 match/EVIDENCE_CORRUPT/HASH_MISMATCH/BINDING_DRIFT）；[runtime/index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/index.ts) barrel 导出。
+  - 验证：Task 9 专项 31/31 通过；全量 20 文件 208/208 通过，`npx tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 10: 实现 CLI 命令路由、参数解析与退出码
 - **Status**: `pending`
