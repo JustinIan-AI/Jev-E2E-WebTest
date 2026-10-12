@@ -5,6 +5,7 @@
  * 退出码六值见 exit-codes.ts：0 PASS / 1 FAIL / 2 BLOCKED / 3 CONFIG_ERROR /
  * 4 RUNTIME_ERROR / 130 CANCELLED。
  */
+import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -30,6 +31,11 @@ import {
   currentJudgeImplHash,
   recomputeJudge,
 } from '../runtime/judge/recompute.js';
+import {
+  exportRunPackage,
+  renderRunReport,
+  ReportNotFoundError,
+} from '../runtime/report/index.js';
 
 const VERSION = '0.1.0';
 
@@ -99,7 +105,11 @@ function mapError(error: unknown): ExitCode {
     process.stderr.write(`idwth: 已取消：${error.message}\n`);
     return EXIT_CODES.CANCELLED;
   }
-  if (error instanceof UsageError || error instanceof ContractConfigError) {
+  if (
+    error instanceof UsageError ||
+    error instanceof ContractConfigError ||
+    error instanceof ReportNotFoundError
+  ) {
     process.stderr.write(`idwth: ${error.message}\n`);
     return EXIT_CODES.CONFIG_ERROR;
   }
@@ -261,17 +271,41 @@ async function cmdReplay(rest: readonly string[], cwd: string, deps: CliDeps): P
 // report
 // ---------------------------------------------------------------------------
 
+/** 默认桌面打开器：macOS open / Linux xdg-open；Windows 不在本期支持范围。 */
+function defaultOpenPath(target: string): void {
+  const command = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const child = spawn(command, [target], { stdio: 'ignore', detached: true });
+  child.on('error', () => undefined);
+  child.unref();
+}
+
 async function cmdReport(rest: readonly string[], cwd: string, deps: CliDeps): Promise<ExitCode> {
   const parsed = parseReportArgs(rest);
   if (parsed.runId === undefined) {
     throw new UsageError('用法：idwth report <run_id> [--open] [--export]');
   }
-  if (deps.report === undefined) {
-    process.stderr.write('idwth: 报告生成能力将在 Task 11 交付；当前版本仅提供命令入口与参数校验\n');
-    return EXIT_CODES.RUNTIME_ERROR;
+  // 显式注入的 report handler 优先（命令入口契约不变）。
+  if (deps.report !== undefined) {
+    const ctx: ReportContext = {
+      cwd,
+      runId: parsed.runId,
+      open: parsed.open,
+      export: parsed.export,
+    };
+    return await deps.report(ctx);
   }
-  const ctx: ReportContext = { cwd, runId: parsed.runId, open: parsed.open, export: parsed.export };
-  return await deps.report(ctx);
+
+  // 默认真实路径：渲染单文件静态报告；缺失 run 归档 → ReportNotFoundError → 3。
+  const htmlPath = await renderRunReport({ rootDir: cwd, runId: parsed.runId });
+  if (parsed.export) {
+    const { exportDir } = await exportRunPackage({ rootDir: cwd, runId: parsed.runId });
+    process.stdout.write(`idwth: 导出包已生成：${exportDir}\n`);
+  }
+  if (parsed.open) {
+    (deps.openPath ?? defaultOpenPath)(htmlPath);
+  }
+  process.stdout.write(`idwth: 报告已生成：${htmlPath}\n`);
+  return EXIT_CODES.PASS;
 }
 
 // ---------------------------------------------------------------------------

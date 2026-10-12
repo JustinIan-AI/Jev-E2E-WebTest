@@ -144,14 +144,16 @@ export type CommandHandler<T extends CommandContext = CommandContext> = (
 ) => Promise<ExitCode> | ExitCode;
 
 /**
- * 可注入命令依赖。validate / judge recompute 走真实路径无需注入；
- * run / replay / report / doctor 的完整能力在后续任务交付，默认入口明确返回 4。
+ * 可注入命令依赖。validate / judge recompute / report 默认走真实路径无需注入；
+ * run / replay / doctor 的完整能力在后续任务交付，默认入口明确返回 4。
+ * openPath 供 report --open 打开渲染产物；测试注入以避免触碰真实桌面环境。
  */
 export interface CliDeps {
   run?: CommandHandler<RunContext>;
   replay?: CommandHandler<ReplayContext>;
   report?: CommandHandler<ReportContext>;
   doctor?: CommandHandler<DoctorContext>;
+  openPath?: (target: string) => void;
 }
 
 // ---------------------------------------------------------------------------
