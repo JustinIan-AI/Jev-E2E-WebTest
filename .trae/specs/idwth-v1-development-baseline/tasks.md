@@ -255,7 +255,7 @@
   - 验证：全量 419/419 通过（36 文件，新增 34 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 16: 实现 repeat 稳定性门禁、doctor 与运行指标
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-13：TDD——33 个新测试先行（RED：3 文件模块缺失）→ 实现 stability/metrics/doctor（GREEN）；TR-16.1 与 TR-16.2 证据齐备；全量 452/452（39 文件）通过，`tsc --noEmit` 与 build 全绿）
 - **Priority**: high
 - **Depends On**: Task 15
 - **Description**:
@@ -266,6 +266,10 @@
 - **Test Requirements**:
   - `rule` TR-16.1: N≥10 时结论不一致的 case 被标记 flaky 并阻断合并，稳定 case 不误报，suite 绿灯率仅输出观测值；证据为稳定性测试。
   - `rule` TR-16.2: doctor 能识别不可用环境、错误端口、JEV 故障和陈旧引擎缓存，并返回规定退出码；证据为 doctor 契约测试。
+- **TDD 证据**:
+  - RED：[stability-gate.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/integration/stability-gate.test.ts)（11 例：FLAKY_MIN_REPEAT=10、N≥10 混合 verdict→flaky+blocksMerge、PASS/BLOCKED 混合同判、全 BLOCKED 一致→stable 不误报、N<10→insufficient-runs 绝不阻断、N>10 判定、verdictsSeen 去重、repeat=0 绿灯率 null、runWithRepeat 顺序编排/异常透传）+ [metrics.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/metrics.test.ts)（13 例：SIR 分母=step/DD-21、accepted 按 step 去重、rejected/provider_error 不计入、防除零、决策延迟中位（奇偶样本）/max/无样本 null、动作 dispatched/ok/failed/byStatus、recovery attempts/fixed、suite 绿灯率观测与空 suite null）+ [doctor.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/doctor.test.ts)（9 例：全绿+缓存 hit→exit 0、chrome/ports/jev fail→exit 4、缓存 stale→fail 且 entries 不外泄、probe 异常按 fail 不崩溃、缓存 miss→warn exit 0、显式 warn 不阻断、多 fail 全量收集不短路）先行失败（3 文件模块缺失）。
+  - GREEN：[stability.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/stability.ts)（evaluateStability 纯判定：N≥10 verdict 不一致→flaky 硬门禁阻断合并；N<10 insufficient-runs 不下结论；suiteGreenRate 仅观测值）+ [metrics.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/metrics.ts)（computeCaseMetrics：SIR=accepted 决策 step 去重/总步数、决策延迟中位数来自 DecisionRecord.latencyMs、动作计数来自 StepExecutionRecord、recovery 计数；computeSuiteMetrics：绿灯率观测）+ [doctor.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/doctor.ts)（六项检查：五项注入 prober 不触真实环境 + 引擎缓存复用 loadEngineCache（hit→ok/miss→warn/stale→fail）；任一 fail→RUNTIME_ERROR(4)、全 ok/warn→PASS(0)；全量执行不短路、probe 异常按 fail 处理）；runtime/index.ts 导出三个新模块。
+  - 验证：全量 452/452 通过（39 文件，新增 33 例），`tsc --noEmit` 0 错误，`npm run build` 通过。
 
 ## Task 17: 构建首个 SUT Reference Suite 并完成 12 条对抗性验收
 - **Status**: `pending`

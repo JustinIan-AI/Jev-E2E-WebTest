@@ -32,3 +32,8 @@ export * from './resolve-l3.js';
 
 // Task 15: replay verify/heal（四项逐步比对 / 漂移终止 / 候选隔离）与引擎缓存交付。
 export * from './replay/index.js';
+
+// Task 16: repeat 稳定性门禁（flaky 二值）、运行指标观测与 doctor 环境检查。
+export * from './stability.js';
+export * from './metrics.js';
+export * from './doctor.js';
