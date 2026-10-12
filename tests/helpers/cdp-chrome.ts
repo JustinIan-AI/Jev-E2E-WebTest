@@ -72,6 +72,10 @@ export async function launchCdpChrome(): Promise<CdpChrome> {
       '--no-default-browser-check',
       '--headless=new',
       '--disable-gpu',
+      // CI（Ubuntu 24.04）AppArmor 限制 unprivileged userns，Chrome 沙箱
+      // 初始化会直接退出；测试 helper 关闭沙箱（本机 macOS 无影响）。
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
       'about:blank',
     ],
     { stdio: 'ignore' },
