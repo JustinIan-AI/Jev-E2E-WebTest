@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
+    "pack:offline": "tsx scripts/build-offline-package.ts",
     "idwth": "tsx src/cli/index.ts"
   },
   "devDependencies": {

@@ -295,7 +295,7 @@
   - 验证：全量 467/467 通过（40 文件，新增 15 例），`tsc --noEmit` 0 错误，`npm run build` 通过。
 
 ## Task 18: 完成 CI 集成、离线发布包与最终合规审计
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-13：TDD——23 个新测试先行（RED：ci-workflow 9 失败 ENOENT + offline-package 收集失败模块缺失 + compliance-audit 9 通过（审计型，现状合规））→ GREEN 实现 ci.yml + offline-package 模块 + pack:offline 脚本；全量 490/490（43 文件）、typecheck/build 全绿）
 - **Priority**: high
 - **Depends On**: Task 17
 - **Description**:
@@ -308,6 +308,15 @@
   - `rule` TR-18.2: 离线包包含按 engine_provider_version 隔离的缓存，断网验收通过；证据为离线包审计和测试记录。
   - `rule` TR-18.3: 无无许可证代码，单体 `src/` 与 `tests/` 目录符合要求（无 `backend/`/`frontend/`），产物不含明文凭据；证据为许可证和安全扫描。
   - `rubric` TR-18.4: 最终端到端交付可理解性；scale 1-5；anchors 1/3/5 与 AC-19 一致；threshold >=4；证据为最终走查记录。
+- **TDD 证据**:
+  - RED：[ci-workflow.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/ci-workflow.test.ts)（9 例：workflow 存在且合法、push/PR 触发、verify job 含 npm ci/typecheck/全量测试/build、validate --json 退出码直通、replay-verify + offline-engine-cache 显式接入、stability-gate 接入、pack:offline 接入、无吞退出码 + 六值映射注释、零模型无凭据 env）+ [offline-package.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/offline-package.test.ts)（5 例：产物结构 manifest/版本隔离缓存/可运行入口、包内仅含请求版本缓存、缓存缺失或版本不符拒绝打包且无半成品、产物无明文凭据、断网验收用包内缓存 replayVerify match 且 modelCalls=0）+ [compliance-audit.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/compliance-audit.test.ts)（9 例：无 backend/frontend、src/tests 边界且测试只在 tests/、src 无 createServer/.listen(、无服务端/GUI 框架依赖、8 个直接依赖许可证全可识别（@types/node@MIT ajv@MIT ajv-formats@MIT playwright@Apache-2.0 tsx@MIT typescript@Apache-2.0 vitest@MIT yaml@ISC）、src 无遥测 SDK、src 与 dist 无明文凭据、tasks.md Task 1~17 全部 completed）先行失败（9 失败 + 收集失败）。
+  - GREEN：
+    - CI：[.github/workflows/ci.yml](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/.github/workflows/ci.yml) —— 六值退出码映射注释（0=PASS 1=FAIL 2=BLOCKED 3=CONFIG_ERROR 4=RUNTIME_ERROR 130=CANCELLED，bash -e 非零即失败、禁止吞退出码）；步骤链 npm ci → typecheck → 全量测试（deterministic run + 六值退出码断言）→ replay-verify/offline-engine-cache 显式执行（零模型 SIR=0）→ stability-gate → build → CLI 冒烟（init + validate --json 退出码直通）→ 离线包契约测试（runner 上零外部依赖可跑；真实构建入口 `npm run pack:offline -- --version <v>` 以注释说明，发布时联网录缓存后执行）；全文零模型凭据注入。
+    - 离线包：[offline-package.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/offline-package.ts)（buildOfflinePackage：先 packEngineCache 校验版本（缺失/错配抛错无半成品）→ 复制 engine-cache/<version> + bin/dist/package.json → OFFLINE-PACKAGE-MANIFEST.json（schema 'idwth.offline-package/1'、files 与磁盘一致含清单自身））；[scripts/build-offline-package.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/scripts/build-offline-package.ts) 薄包装（--version 参数，exit 3 用法错 / 4 构建失败）+ package.json `pack:offline` script；runtime barrel 导出。
+    - 合规：审计测试全部通过（布局/无 server 入口/依赖黑名单/许可证/遥测/脱敏/任务流转），许可证清单见测试输出。
+  - TR-18.4 走查记录（评分 4/5，threshold >=4 达标）：基于真实生成 run 归档走查——CLI 真实路径构造完整归档（archive/blobs/judgement_set/evidence-manifest.json/judge-result.json/report.json/screenshots）→ `idwth report` 真实渲染 exit 0；report.html 叙事链路逐项确认：用例（id/name/goal/base_url）、步骤（3 步 intent/action/target/risk）、断言（kind/description/state/evidence_ref → artifact:// 引用 ×2）、截图（base64 内联 + 说明文字，单文件自包含可离线 file:// 打开）、复现命令（rerun_command 明示 `idwth run .idwth/contracts/case.yaml --provider mock`）、verdict 状态（PASS 中性蓝配色由 Task 11 契约测试断言）；脱敏由 Task 8 扫描链路 + compliance-audit 复检。非作者可依 rerun 命令独立复核。扣 1 分理由：本次走查注入的截图为确定性 1x1 占位 PNG，真实浏览器页面截图链路由 Task 8 脱敏集成测试覆盖但未在本走查中注入。
+  - TR-18.1 CI 运行记录说明：workflow 随本提交推送后由 GitHub Actions 执行（push 触发）；本机已复跑 workflow 全部步骤等价命令（vitest 490/490、tsc、build、init+validate exit 0、离线包契约测试 5/5）；`pack:offline` 真实执行验证——无引擎缓存时 exit 4 快速失败（`engine cache for version '0.1.0' does not exist; nothing to pack (DD-35)`），有缓存构建/版本错配拒绝路径由 offline-package 契约测试覆盖；六值退出码处理由 exit-codes/executor/cli 契约测试承担。
+  - 验证：全量 490/490 通过（43 文件，新增 23 例），`tsc --noEmit` 0 错误，`npm run build` 通过。
 
 ## AC 覆盖矩阵
 

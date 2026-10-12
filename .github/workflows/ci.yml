@@ -1,0 +1,57 @@
+# IDWTH CI — deterministic test harness pipeline (Task 18 / TR-18.1).
+#
+# Exit-code contract (six values): 0=PASS 1=FAIL 2=BLOCKED 3=CONFIG_ERROR
+# 4=RUNTIME_ERROR 130=CANCELLED. Every step runs under bash -e semantics:
+# only 0=PASS passes the job; any non-zero exit (1=FAIL, 2=BLOCKED,
+# 3=CONFIG_ERROR, 4=RUNTIME_ERROR, 130=CANCELLED) fails it. No step may
+# swallow exit codes (`|| true` is forbidden).
+#
+# Zero-model guarantee: the `deterministic run` and `replay --verify`
+# requirements are asserted by the dedicated integration suites below
+# (SIR=0, L3 zero-touch when offline). No model credentials are ever
+# injected into this pipeline.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Full test suite (deterministic run, six-value exit codes)
+        run: npm test
+
+      - name: Replay --verify + offline engine cache (zero model, SIR=0)
+        run: npx vitest run tests/integration/replay-verify.test.ts tests/integration/offline-engine-cache.test.ts
+
+      - name: Repeat/flaky stability gate
+        run: npx vitest run tests/integration/stability-gate.test.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: CLI smoke — init + validate (exit code passthrough)
+        run: |
+          node bin/idwth.js init
+          node bin/idwth.js validate .idwth/contracts/example.contract.yaml --json
+
+      # Offline package: CI asserts the build contract (version isolation +
+      # offline acceptance on packed cache). The real package is built at
+      # release time with `npm run pack:offline -- --version <engine_provider_version>`
+      # after recording an engine cache (no model credentials involved).
+      - name: Offline package — contract tests (version isolation, offline acceptance)
+        run: npx vitest run tests/contract/offline-package.test.ts

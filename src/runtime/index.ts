@@ -37,3 +37,6 @@ export * from './replay/index.js';
 export * from './stability.js';
 export * from './metrics.js';
 export * from './doctor.js';
+
+// Task 18: 离线/内网发布包（版本隔离引擎缓存 + 可运行入口 + 打包清单）。
+export * from './offline-package.js';
