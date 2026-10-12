@@ -112,8 +112,8 @@
   - GREEN：[scope.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/scope.ts)（8 位 hex runId、`${runId}`+`${contractId}` 两级替换、名字/标签双标识论域收窄 + excluded_system_objects，禁止时间戳判据）；[types.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/tools/backend/types.ts) BackendAdapter/EvidenceProvider 契约 + MutableBackendAdapter（DD-44：cleanup 复用 adapter 不新增可替换边界）；[mock.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/tools/backend/mock.ts) V1 内存 mock（seed/query/delete/get + 调用审计）；[cleanup.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/cleanup.ts) DELETE 一次 + 只读 GET 轮询 404、404-on-delete 幂等、超时 BLOCKED(cleanup)、默认 2s/60s。
   - 验证：全量 127/127 通过（15 文件，新增 19 例），`tsc --noEmit` 与 `npm run build` 通过。
 
-## Task 8: 实现 Evidence 分级、安全采集与截图/Trace 脱敏
-- **Status**: `pending`
+## Task 8: 实现 Evidence 分级、安全采集与截图/Trace 脱敏【✅ 已完成】
+- **Status**: `completed`【✅】
 - **Priority**: high
 - **Depends On**: Task 7
 - **Description**:
@@ -124,6 +124,10 @@
 - **Test Requirements**:
   - `rule` TR-8.1: Trace/Evidence/Observation 中不包含明文密码和 credential 字段，登录产物扫描结果为空；证据为脱敏集成测试和产物扫描。
   - `rule` TR-8.2: 页面渲染的 kubeconfig/Bearer 等已知密钥明文在截图中被遮罩，archived 超限只外移并写指针；证据为截图与归档测试。
+- **TDD 证据**:
+  - RED：[redaction.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/redaction.test.ts) 33 例（isCredentialKey 词段匹配、redactValue 嵌套 credential 键整值替换/数组递归、redactObservation 剔除 password/file/hidden、buildTextMaskScript TreeWalker 脚本、scanFilesForSecrets 二进制跳过）+ [evidence-store.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/evidence-store.test.ts) 12 例（分级分目录、0700、artifact URI、实时落盘 manifest、sha256 内容寻址去重、judgement_set 永不截断、archived 超限外移+指针、judgementDigest、安全采集）+ [evidence-redaction.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/evidence-redaction.test.ts) 真实 Chrome 5 例（AC-08 指定文件：MASK_INPUT_SELECTOR、第二层文本遮罩后 DOM grep 为空、先遮罩后截图、登录观测剔除、全链路产物扫描）先行失败。
+  - GREEN：[redaction.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/redaction.ts)（credential 语义键脱敏 + 已知明文替换 + TreeWalker 第二层遮罩（命中明文替换为 [REDACTED] 黑底黑字 span）+ trace 序列化 + 产物递归扫描）；[evidence-store.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/evidence-store.ts)（`artifact://<runId>/<tier>/<name>`、blobs 内容寻址去重、judgement_set/archived 分目录、run 目录 0700、manifest 实时同步、judgement_set 永不截断、archived 默认 50MB 超限 rename 外移并写指针 JSON、judgementDigest 排序聚合 sha256、写入前强制脱敏）；[screenshot.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/playwright/screenshot.ts)（两层遮罩：先 page.evaluate 文本遮罩后 screenshot 原生 mask，显式 input[type=password/file/hidden]）；[index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/index.ts) barrel 导出。
+  - 验证：全量 177/177 通过（18 文件，新增 50 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 9: 实现 Judge 纯函数、断言原语与离线重算
 - **Status**: `pending`

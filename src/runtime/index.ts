@@ -18,3 +18,7 @@ export * from './executor.js';
 // Task 7: run 级作用域（双标识论域收窄）与 finally cleanup 终态轮询。
 export * from './scope.js';
 export * from './cleanup.js';
+
+// Task 8: Evidence 分级存储（内容寻址/外移指针/digest）与安全采集脱敏。
+export * from './evidence-store.js';
+export * from './redaction.js';
