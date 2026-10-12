@@ -200,7 +200,7 @@
   - `rule` TR-12.2: 确定性执行路径不持有可调用 Provider，Mock/断网时不会发生隐式模型调用；证据为依赖/调用审计和集成测试。
 
 ## Task 13: 实现语义 Recovery、审计与步级后置条件
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-12：TDD——12 个新测试先行（RED：recovery-audit 模块缺失收集失败、A4 篡改得逞假 PASS、上限审计缺失）→ GREEN 实现 RecoveryRecord 审计 + A4 固化；全量 354/354（27 文件）、typecheck/build 全绿）
 - **Priority**: high
 - **Depends On**: Task 12
 - **Description**:
@@ -211,6 +211,10 @@
 - **Test Requirements**:
   - `rule` TR-13.1: A4 修改断言被拒绝并审计终止，A9 错误但看似合理的目标被步级 postcondition 捕获；证据为 Recovery 集成测试。
   - `rule` TR-13.2: 同一步第二次恢复和超过 case 上限时均 BLOCKED(recovery)；证据为上限测试。
+- **TDD 证据**:
+  - RED：[recovery-audit.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/recovery-audit.test.ts)（8 例：outcome 归一、快照脱敏/observe 失败容错、RecoveryRecord 形状 attempt/fixed/mode/before/after/latency、case 级 attempt 连续编号、beforeError/afterError 入档）+ [recovery.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/integration/recovery.test.ts)（4 例：TR-13.1 A4/A9 + TR-13.2 上限）先行失败——recovery-audit 模块不存在收集失败；A4 场景篡改得逞（completed 假 PASS）；上限测试断言 recoveries 缺失。
+  - GREEN：新增 [recovery-audit.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/recovery-audit.ts)（RecoveryOutcome/RecoveryRecord、captureRecoverySnapshot 现采 fresh 观测经 redactObservation 脱敏、normalizeRecoveryOutcome 兼容 boolean 旧钩子）；[executor.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/executor.ts) 接线——A4 派发前 structuredClone 固化本步 postcondition（恢复后校验固化副本，钩子运行期篡改不生效且零参调用拿不到句柄）、Recovery 循环记录 attempt（case 级 1 起）/mode/before-after/latency 入 CaseResult.recoveries、1/step 与 3/case 上限与 postcondition 闸门维持（DD §8.3）。
+  - 验证：A4 集成测试确认篡改版本从未被求值（引擎只收到原始 visible 断言）→ BLOCKED(postcondition) + 审计入档；A9 L3 接受合理错误候选派发成功被步级断言捕获（零 recovery）；上限两例均 BLOCKED(recovery) 且第二次恢复从未执行。全量 354/354 通过（27 文件，新增 12 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 14: 集成 e2e EngineProvider、错误码吸附与恢复触发权控制
 - **Status**: `pending`

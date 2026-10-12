@@ -11,6 +11,12 @@
  *    绝不二次派发；
  *  - Recovery 仅对「未派发、可逆」失败开放，上限 1 次/步、3 次/case（§8.3）；
  *  - Recovery 后必须校验该步声明的 postcondition，未声明 → BLOCKED(postcondition)。
+ *
+ * Recovery 审计（AC-07 / Task 13）：
+ *  - 每次 Recovery 留下 RecoveryRecord（case 级 attempt、mode、恢复前后 fresh
+ *    快照、时延），随 CaseResult.recoveries 返回；
+ *  - A4（semantic-recovery ①）：recover 钩子零参调用拿不到 Goal/Assertion 句柄，
+ *    恢复后校验的 postcondition 以派发前固化的副本为准，运行期篡改不生效。
  */
 import type {
   Action,
@@ -23,6 +29,12 @@ import type {
 import { resolveDeterministic } from './resolve.js';
 import { ensureFresh, type FreshnessCapable } from './freshness.js';
 import { resolveWithL3, type DecisionRecord } from './resolve-l3.js';
+import {
+  captureRecoverySnapshot,
+  normalizeRecoveryOutcome,
+  type RecoveryOutcome,
+  type RecoveryRecord,
+} from './recovery-audit.js';
 import type { DecisionBudget } from '../adapters/jev/budget.js';
 import type { DecisionOp, JevDecisionProvider } from '../adapters/jev/types.js';
 
@@ -62,6 +74,8 @@ export interface CaseResult {
   reason?: BlockReason;
   /** Task 12：L3 决策审计（状态/拒绝原因/usage/latency）；仅发生决策尝试时携带。 */
   decisions?: DecisionRecord[];
+  /** Task 13：Recovery 审计（attempt/mode/before-after 快照）；仅发生恢复时携带。 */
+  recoveries?: RecoveryRecord[];
 }
 
 /** Task 12：L3 决策能力（显式注入；未注入 = 纯确定性路径，绝不持有 Provider）。 */
@@ -76,9 +90,13 @@ export interface DecisionCapability {
 export interface ExecuteCaseOptions {
   /**
    * Recovery 钩子：由编排层提供（重新展开导航/关闭弹层等）。
-   * 返回 true 表示环境已修复，允许在同一步重新派发一次。
+   * ★ 零参调用（A4）：Runtime 绝不递给钩子 Goal/Assertion 的可写句柄。
+   * 返回 true（兼容旧钩子）或 { ok, mode? }；ok=true 表示环境已修复，
+   * 允许在同一步重新派发一次。每次调用都会产生一条 RecoveryRecord。
    */
-  recover?: () => Promise<boolean>;
+  recover?: () => Promise<boolean | RecoveryOutcome>;
+  /** 观测脱敏已知明文：Recovery before/after 快照采集时替换 [REDACTED]。 */
+  secrets?: readonly string[];
   /** L3 语义决策（唯一模型介入点）；缺省 → 纯 L1/L2 确定性执行（TR-12.2）。 */
   decision?: DecisionCapability;
 }
@@ -124,10 +142,17 @@ type ExecutorProvider = EngineProvider & FreshnessCapable;
 const MAX_RECOVERY_PER_STEP = 1;
 const MAX_RECOVERY_PER_CASE = 3;
 
-function blocked(reason: BlockReason, decisions?: DecisionRecord[]): CaseResult {
-  return decisions && decisions.length > 0
-    ? { status: 'blocked', reason, decisions }
-    : { status: 'blocked', reason };
+function blocked(
+  reason: BlockReason,
+  decisions: DecisionRecord[] = [],
+  recoveries: RecoveryRecord[] = [],
+): CaseResult {
+  return {
+    status: 'blocked',
+    reason,
+    ...(decisions.length > 0 ? { decisions } : {}),
+    ...(recoveries.length > 0 ? { recoveries } : {}),
+  };
 }
 
 function needsTarget(kind: Action['kind']): boolean {
@@ -177,15 +202,18 @@ export async function executeCase(
   let caseRecoveries = 0;
   /** Case 级 L3 决策审计（跨步骤累积）。 */
   const decisions: DecisionRecord[] = [];
+  /** Case 级 Recovery 审计（跨步骤累积，AC-07）。 */
+  const recoveries: RecoveryRecord[] = [];
+  const secrets = options.secrets ?? [];
 
   for (const [stepIndex, step] of c.steps.entries()) {
     // ① 定位（L1→L2 确定性串行，均未命中才 L3）+ ② Freshness（失效只重解析一次）。
     let resolved: ResolveResult | null = null;
     if (needsTarget(step.action)) {
-      if (!step.target) return blocked('decision', decisions);
+      if (!step.target) return blocked('decision', decisions, recoveries);
 
       const initial = await resolveDeterministic(provider, step.target);
-      if (initial.status === 'ambiguous') return blocked('ambiguity', decisions);
+      if (initial.status === 'ambiguous') return blocked('ambiguity', decisions, recoveries);
 
       let current: ResolveResult;
       if (initial.status === 'resolved') {
@@ -193,7 +221,7 @@ export async function executeCase(
       } else {
         // §8.1 L3：仅 L1/L2 均未命中时构造候选问题集调用决策 Provider。
         // 未注入 decision → 确定性路径直接 BLOCKED(decision)，零模型调用（TR-12.2）。
-        if (!options.decision) return blocked('decision', decisions);
+        if (!options.decision) return blocked('decision', decisions, recoveries);
 
         const attempt = await resolveWithL3({
           provider,
@@ -209,17 +237,23 @@ export async function executeCase(
           ...(options.decision.secrets ? { secrets: options.decision.secrets } : {}),
         });
         decisions.push(attempt.record);
-        if (attempt.outcome !== 'resolved') return blocked('decision', decisions);
+        if (attempt.outcome !== 'resolved') return blocked('decision', decisions, recoveries);
         current = attempt.resolved;
       }
 
       const freshness = await ensureFresh(provider, step.target, current);
-      if (freshness.outcome === 'drift') return blocked('drift', decisions);
+      if (freshness.outcome === 'drift') return blocked('drift', decisions, recoveries);
       resolved = freshness.resolved;
     }
 
     // ③ 派发。
     const action = buildAction(step, resolved);
+    // A4（semantic-recovery ①）：派发前固化本步声明的 postcondition。
+    // recover 钩子零参调用、拿不到可写句柄；钩子对断言的运行期篡改不生效——
+    // 恢复后校验的永远是这份固化副本。
+    const declared: AssertionSpec[] | undefined = step.postcondition
+      ? structuredClone(step.postcondition)
+      : undefined;
     let ar = await provider.act(action);
 
     // ④ 失败分流 + Recovery 循环（复用已解析目标，不再 resolve/freshness）。
@@ -228,24 +262,47 @@ export async function executeCase(
       let stepRecoveries = 0;
       while (ar.status !== 'ok') {
         const mapping = classifyFailure(ar, step.risk);
-        if (!mapping.recoverable) return blocked(mapping.blockReason ?? 'decision', decisions);
+        if (!mapping.recoverable)
+          return blocked(mapping.blockReason ?? 'decision', decisions, recoveries);
 
         if (
           stepRecoveries >= MAX_RECOVERY_PER_STEP ||
           caseRecoveries >= MAX_RECOVERY_PER_CASE ||
           !options.recover
         ) {
-          return blocked('recovery', decisions);
+          return blocked('recovery', decisions, recoveries);
         }
 
-        const fixed = await options.recover();
+        // 审计：before 快照 → 恢复 → （成功才采 after 快照）→ RecoveryRecord 入档。
+        const startedAt = Date.now();
+        const before = await captureRecoverySnapshot(provider, secrets);
+        const outcome = normalizeRecoveryOutcome(await options.recover());
+        const after = outcome.ok ? await captureRecoverySnapshot(provider, secrets) : {};
+        recoveries.push({
+          stepIndex,
+          intent: step.intent,
+          attempt: caseRecoveries + 1,
+          fixed: outcome.ok,
+          ...(outcome.mode ? { mode: outcome.mode } : {}),
+          ...(before.snapshot
+            ? { before: before.snapshot }
+            : before.error
+              ? { beforeError: before.error }
+              : {}),
+          ...(after.snapshot
+            ? { after: after.snapshot }
+            : after.error
+              ? { afterError: after.error }
+              : {}),
+          latencyMs: Date.now() - startedAt,
+        });
         stepRecoveries += 1;
         caseRecoveries += 1;
-        if (!fixed) return blocked('recovery', decisions);
+        if (!outcome.ok) return blocked('recovery', decisions, recoveries);
 
-        // Recovery 成功必须以声明的 postcondition 兜底；未声明无法确认系统状态。
-        if (!step.postcondition || step.postcondition.length === 0) {
-          return blocked('postcondition', decisions);
+        // Recovery 成功必须以「派发前固化」的 postcondition 兜底；未声明无法确认系统状态。
+        if (!declared || declared.length === 0) {
+          return blocked('postcondition', decisions, recoveries);
         }
 
         recovered = true;
@@ -253,24 +310,28 @@ export async function executeCase(
       }
     }
 
-    // ⑤ Postcondition。
+    // ⑤ Postcondition（对固化副本求值 —— A4：recovery 期间的篡改不生效）。
     //   - recovery 路径上声明非空已在循环内保证；
     //   - 正常路径仅在声明时求值；
     //   - 断言为否 → BLOCKED(postcondition)；断言无法求值 → BLOCKED(evidence)。
-    if (step.postcondition && step.postcondition.length > 0) {
-      for (const raw of step.postcondition) {
+    if (declared && declared.length > 0) {
+      for (const raw of declared) {
         const spec: AssertionSpec = raw.target
           ? raw
           : { ...raw, ...(step.target ? { target: step.target } : {}) };
         const r = await provider.checkAssertion(spec);
-        if (r.status === 'inconclusive') return blocked('evidence', decisions);
-        if (!r.passed) return blocked('postcondition', decisions);
+        if (r.status === 'inconclusive') return blocked('evidence', decisions, recoveries);
+        if (!r.passed) return blocked('postcondition', decisions, recoveries);
       }
     } else if (recovered) {
       // 理论不可达（循环内已拦截），保留防御性分支。
-      return blocked('postcondition', decisions);
+      return blocked('postcondition', decisions, recoveries);
     }
   }
 
-  return decisions.length > 0 ? { status: 'completed', decisions } : { status: 'completed' };
+  return {
+    status: 'completed',
+    ...(decisions.length > 0 ? { decisions } : {}),
+    ...(recoveries.length > 0 ? { recoveries } : {}),
+  };
 }
