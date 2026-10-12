@@ -5,7 +5,10 @@ import { chromium, type Browser } from 'playwright';
 import {
   PlaywrightProvider,
   type EngineProvider,
+  type SemanticTarget,
 } from '../../src/engine-provider/index.js';
+import { resolveDeterministic } from '../../src/runtime/resolve.js';
+import { ensureFresh } from '../../src/runtime/freshness.js';
 import {
   cleanupCdpChrome,
   launchCdpChrome,
@@ -25,6 +28,22 @@ const PAGES: Record<string, string> = {
     <div id="cluster">none</div>
     <script>document.getElementById('cluster').textContent =
       sessionStorage.getItem('cluster') ?? 'none';</script>
+  </body></html>`,
+  // L2 指纹夹具：两个 fieldset，各自 legend 提供稳定锚文本；链接可改名模拟名称漂移。
+  '/fp': `<!doctype html><html><body>
+    <fieldset><legend>集群管理</legend><nav>
+      <a href="#wl">工作负载</a><a href="#node">节点</a>
+    </nav></fieldset>
+    <fieldset><legend>系统管理</legend><nav>
+      <a href="#user">用户</a><a href="#role">角色</a>
+    </nav></fieldset>
+  </body></html>`,
+  // Freshness 夹具：目标按钮在 form 子树内；#rows 是子树外的动态校验行挂载点。
+  '/fresh': `<!doctype html><html><body>
+    <main><form id="f">
+      <label>名称 <input id="name" type="text" /></label>
+      <button id="save" type="button">保存</button>
+    </form><div id="rows"></div></main>
   </body></html>`,
 };
 
@@ -210,6 +229,142 @@ describe('PlaywrightProvider over CDP —— Provider 契约 (TR-4.1 / TR-4.2)',
       expected: 1,
     });
     expect(count.passed).toBe(true);
+    await page.close().catch(() => undefined);
+    await provider.dispose();
+  });
+
+  it('TR-5.1: L2 指纹在名称漂移（L1 miss）后仍唯一命中，role/name 不参与指纹相等性', async () => {
+    const provider = await makeProvider();
+    const page = await provider.openForegroundTab(`${baseUrl}/fp`);
+
+    // 用真实页面捕获目标链接在「改名前」的冻结指纹（三件套）。
+    const frozen = await provider.captureFingerprint('a[href="#wl"]');
+    expect(frozen.anchor_text).toContain('集群管理');
+    expect(frozen.sibling_ordinal).toBeGreaterThanOrEqual(0);
+
+    // 名称漂移：链接文案改变 → L1 语义定位 miss。
+    await page.evaluate(() => {
+      (globalThis as unknown as { document: any }).document
+        .querySelector('a[href="#wl"]').textContent = '工作负载（新）';
+    });
+    const l1Only = await provider.resolve(
+      { role: 'link', name: '工作负载', match: 'exact' },
+      'L1',
+    );
+    expect(l1Only.status).toBe('miss');
+
+    // 带冻结指纹 → resolveDeterministic 串行进入 L2 并唯一命中（strategy=fingerprint）。
+    const target: SemanticTarget = {
+      role: 'link',
+      name: '工作负载',
+      fingerprint: {
+        dom_path_hash: frozen.dom_path_hash,
+        sibling_ordinal: frozen.sibling_ordinal,
+        anchor_text: frozen.anchor_text,
+      },
+    };
+    const r = await resolveDeterministic(provider, target);
+    expect(r.status).toBe('resolved');
+    expect(r.mode).toBe('L2');
+    expect(r.strategy).toBe('fingerprint');
+    expect(r.elementId).toBeDefined();
+
+    // 命中的确实是改名后的同一个元素。
+    const href = await page.evaluate(
+      () => (globalThis as unknown as { document: any }).document
+        .querySelector('a[href="#wl"]').getAttribute('href'),
+    );
+    expect(href).toBe('#wl');
+    await page.close().catch(() => undefined);
+    await provider.dispose();
+  });
+
+  it('TR-5.1: L2 三件套任一不匹配即 miss（误命中比不命中更危险）', async () => {
+    const provider = await makeProvider();
+    const page = await provider.openForegroundTab(`${baseUrl}/fp`);
+    const frozen = await provider.captureFingerprint('a[href="#wl"]');
+
+    const wrongOrdinal = await provider.resolve(
+      {
+        role: 'link',
+        fingerprint: {
+          dom_path_hash: frozen.dom_path_hash,
+          sibling_ordinal: frozen.sibling_ordinal + 99,
+          anchor_text: frozen.anchor_text,
+        },
+      },
+      'L2',
+    );
+    expect(wrongOrdinal.status).toBe('miss');
+
+    const wrongAnchor = await provider.resolve(
+      {
+        role: 'link',
+        fingerprint: {
+          dom_path_hash: frozen.dom_path_hash,
+          sibling_ordinal: frozen.sibling_ordinal,
+          anchor_text: ['不存在的锚'],
+        },
+      },
+      'L2',
+    );
+    expect(wrongAnchor.status).toBe('miss');
+    await page.close().catch(() => undefined);
+    await provider.dispose();
+  });
+
+  it('TR-5.2: Freshness 作用域内比对 —— 子树外动态校验行不判 stale，目标子树替换即失效', async () => {
+    const provider = await makeProvider();
+    const page = await provider.openForegroundTab(`${baseUrl}/fresh`);
+
+    const initial = await provider.resolve(
+      { role: 'button', name: '保存', match: 'exact' },
+      'L1',
+    );
+    expect(initial.status).toBe('resolved');
+    expect(initial.elementId).toBeDefined();
+
+    // observe 给当前目标盖上 data-observation-id（解析所依据的观测）。
+    const obs = await provider.observe();
+    await page.evaluate(
+      (id) => {
+        (globalThis as unknown as { document: any }).document
+          .getElementById('save')
+          .setAttribute('data-observation-id', id);
+      },
+      obs.observationId,
+    );
+
+    // 子树外插入动态校验行 → 仍 fresh（作用域隔离，避免每次 mutation 误判）。
+    await page.evaluate(() => {
+      const d = (globalThis as unknown as { document: any }).document;
+      d.getElementById('rows').appendChild(d.createElement('div')).textContent =
+        '名称不能为空';
+    });
+    const stillFresh = await ensureFresh(
+      provider,
+      { role: 'button', name: '保存', match: 'exact' },
+      initial,
+    );
+    expect(stillFresh.outcome).toBe('fresh');
+
+    // 目标子树（按钮本身）被替换：新节点无旧 observation id → stale；
+    // 重解析拿到新按钮并盖上新 id 后重判仍无法匹配旧观测 → drift（只重解析一次）。
+    await page.evaluate(() => {
+      const d = (globalThis as unknown as { document: any }).document;
+      const old = d.getElementById('save');
+      const neu = d.createElement('button');
+      neu.id = 'save';
+      neu.type = 'button';
+      neu.textContent = '保存（已更新）';
+      old.replaceWith(neu);
+    });
+    const drifted = await ensureFresh(
+      provider,
+      { role: 'button', name: '保存', match: 'exact' },
+      initial,
+    );
+    expect(drifted.outcome).toBe('drift');
     await page.close().catch(() => undefined);
     await provider.dispose();
   });

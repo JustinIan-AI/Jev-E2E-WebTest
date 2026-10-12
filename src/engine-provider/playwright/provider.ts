@@ -19,7 +19,20 @@ import {
 import { attach, detach, isOriginAllowed } from './attach.js';
 import { openBackgroundTab, type BackgroundTab } from './background-tab.js';
 import { newIsolatedContext } from './isolation.js';
+import {
+  type ElementFingerprint,
+  fingerprintsEqual,
+  hashDomPath,
+} from './fingerprint.js';
 import { TMP_DIR } from '../../cli/paths.js';
+
+/** 浏览器侧枚举出来的原始指纹（路径尚未哈希，Node 侧统一哈希）。 */
+interface RawFingerprint {
+  token: string;
+  path: string;
+  siblingOrdinal: number;
+  anchorText: string[];
+}
 
 const nodeRequire = createRequire(import.meta.url);
 const playwrightPkg = nodeRequire('playwright/package.json') as { version: string };
@@ -43,6 +56,9 @@ export class PlaywrightProvider implements EngineProvider {
   /** 元素注册表：elementId → { page, locator }；id 由代码生成，不来自模型。 */
   private readonly elementRegistry = new Map<string, { page: Page; locator: Locator }>();
   private elementSeq = 0;
+
+  /** 最近一次 observe 的 observationId（Freshness 比对基准，Runtime 独占）。 */
+  private lastObservationId?: string;
 
   /** Provider 打开的页面/隔离 context，dispose 时清理（用户原有页面不动）。 */
   private readonly ownedPages = new Set<Page>();
@@ -155,8 +171,7 @@ export class PlaywrightProvider implements EngineProvider {
 
   async resolve(target: SemanticTarget, mode: 'L1' | 'L2'): Promise<ResolveResult> {
     const page = this.activePage();
-    // Task 4 只实现 L1（ARIA role / label / text）；L2 指纹在 Task 5。
-    if (mode === 'L2') return { status: 'miss' };
+    if (mode === 'L2') return this.resolveByFingerprint(page, target);
 
     const exact = target.match !== 'substring';
     let locator: Locator;
@@ -185,6 +200,175 @@ export class PlaywrightProvider implements EngineProvider {
     const elementId = `el-${++this.elementSeq}`;
     this.elementRegistry.set(elementId, { page, locator });
     return { status: 'resolved', mode: 'L1', elementId, strategy };
+  }
+
+  /**
+   * 枚举当前页全部可交互元素的原始指纹。
+   * 每次调用重新盖章 data-idwth-l2（唯一 token），保证 Locator 可稳定重定位。
+   */
+  private async enumerateFingerprints(page: Page): Promise<RawFingerprint[]> {
+    return page.evaluate((): RawFingerprint[] => {
+      const doc = (globalThis as unknown as { document: any }).document;
+      const interactive =
+        'button,a,input,select,textarea,[role],[onclick],summary';
+      const all = Array.from(doc.querySelectorAll(interactive)) as any[];
+
+      return all.map((el, i) => {
+        // DOM 路径：从元素向上收集「标签 + 同级序号」，反转后从根排列（最多 10 层）。
+        const reversed: string[] = [];
+        let node: any = el;
+        let depth = 0;
+        while (node && node.nodeType === 1 && depth < 10) {
+          const parent = node.parentElement;
+          let ordinal = 0;
+          if (parent) {
+            const sameTag = Array.from(parent.children).filter(
+              (c: any) => c.tagName === node.tagName,
+            );
+            ordinal = sameTag.indexOf(node);
+          }
+          reversed.push(
+            `${node.tagName.toLowerCase()}${sameTagCount(node)}${ordinal}`,
+          );
+          node = parent;
+          depth += 1;
+        }
+        const path = reversed.reverse().join('>');
+
+        // 锚文本：沿祖先链收集稳定的 label 类容器文本（legend/h1-5/label/th/aria-label）。
+        const anchors: string[] = [];
+        let anc: any = el.parentElement;
+        let up = 0;
+        while (anc && up < 6 && anchors.length < 4) {
+          const aria = anc.getAttribute?.('aria-label');
+          if (aria && aria.trim()) anchors.push(aria.trim().slice(0, 40));
+          const tag = anc.tagName;
+          if (tag === 'LABEL' || tag === 'TH' || /^H[1-5]$/.test(tag)) {
+            const t = (anc.innerText ?? anc.textContent ?? '').trim().slice(0, 40);
+            if (t && !anchors.includes(t)) anchors.push(t);
+          }
+          // 分组锚（如 legend）常是容器祖先的子元素、而非目标自身的祖先：
+          // 典型结构 fieldset > legend + nav > a。向分组容器内查询一次。
+          if (
+            tag === 'FIELDSET' || tag === 'SECTION' ||
+            tag === 'FORM' || tag === 'BODY'
+          ) {
+            const group = anc.querySelector('legend,h1,h2,h3,h4,h5,th');
+            if (group) {
+              const t = (group.innerText ?? group.textContent ?? '').trim().slice(0, 40);
+              if (t && !anchors.includes(t)) anchors.push(t);
+            }
+          }
+          anc = anc.parentElement;
+          up += 1;
+        }
+
+        const token = `l2-${i}-${Date.now()}`;
+        el.setAttribute('data-idwth-l2', token);
+        return {
+          token,
+          path,
+          siblingOrdinal: siblingOrdinalOf(el),
+          anchorText: dedupe(anchors),
+        };
+      });
+
+      // 同级序号：元素在父节点 element children 中的位置。
+      function siblingOrdinalOf(el: any): number {
+        const parent = el.parentElement;
+        if (!parent) return 0;
+        return Array.from(parent.children).indexOf(el);
+      }
+      // 路径段中的同名兄弟总数，增强路径唯一性。
+      function sameTagCount(node: any): string {
+        const parent = node.parentElement;
+        if (!parent) return '';
+        const n = Array.from(parent.children).filter(
+          (c: any) => c.tagName === node.tagName,
+        ).length;
+        return n > 1 ? `:nth-of-type` : '';
+      }
+      function dedupe(list: string[]): string[] {
+        return list.filter((v, i) => list.indexOf(v) === i);
+      }
+    });
+  }
+
+  /** L2：指纹三件套全等才命中；命中多个 → ambiguous；未命中 → miss。 */
+  private async resolveByFingerprint(
+    page: Page,
+    target: SemanticTarget,
+  ): Promise<ResolveResult> {
+    const wanted = target.fingerprint;
+    if (!wanted) return { status: 'miss' };
+
+    const raws = await this.enumerateFingerprints(page);
+    const matches = raws.filter((r) =>
+      fingerprintsEqual(
+        {
+          dom_path_hash: hashDomPath(r.path),
+          sibling_ordinal: r.siblingOrdinal,
+          anchor_text: r.anchorText,
+        },
+        wanted,
+      ),
+    );
+
+    if (matches.length === 0) return { status: 'miss' };
+    if (matches.length > 1) return { status: 'ambiguous', count: matches.length };
+
+    const raw = matches[0]!;
+    const locator = page.locator(`[data-idwth-l2="${raw.token}"]`);
+    const elementId = `el-${++this.elementSeq}`;
+    this.elementRegistry.set(elementId, { page, locator });
+    return {
+      status: 'resolved',
+      mode: 'L2',
+      elementId,
+      strategy: 'fingerprint',
+    };
+  }
+
+  /**
+   * 创作期辅助：按真实页面捕获一个元素的冻结指纹（三件套）。
+   * 仅用于工具链生成/校验 Frozen Strategy；选择器是创作输入，不进入 Runtime Contract。
+   */
+  async captureFingerprint(cssSelector: string): Promise<ElementFingerprint> {
+    const page = this.activePage();
+    const raws = await this.enumerateFingerprints(page);
+    const targetToken = await page
+      .locator(cssSelector)
+      .first()
+      .getAttribute('data-idwth-l2')
+      .catch(() => null);
+    const raw = raws.find((r) => r.token === targetToken);
+    if (!raw) throw new Error(`no fingerprint for selector: ${cssSelector}`);
+    return {
+      dom_path_hash: hashDomPath(raw.path),
+      sibling_ordinal: raw.siblingOrdinal,
+      anchor_text: raw.anchorText,
+    };
+  }
+
+  /**
+   * Freshness 原语（§5.5.6）：读取 resolved 元素子树根（即元素本身）的
+   * data-observation-id，与最近一次 observe 的 observationId 比对。
+   * 作用域限定目标节点，子树外动态校验行不参与判断。
+   */
+  async verifyFreshness(
+    _target: SemanticTarget,
+    resolved: ResolveResult,
+  ): Promise<boolean> {
+    const entry = resolved.elementId
+      ? this.elementRegistry.get(String(resolved.elementId))
+      : undefined;
+    if (!entry || !this.lastObservationId) return false;
+    // 元素已被替换（分离）时 getAttribute 默认会自动等待 30s；
+    // Freshness 是廉价只读校验，给短超时，分离/缺失立即视为不新鲜。
+    const current = await entry.locator
+      .getAttribute('data-observation-id', { timeout: 2_000 })
+      .catch(() => null);
+    return current === this.lastObservationId;
   }
 
   async act(action: Action): Promise<ActionResult> {
@@ -371,6 +555,7 @@ export class PlaywrightProvider implements EngineProvider {
       () => (globalThis as unknown as { document: any }).document.body.innerText.slice(0, 4000),
     );
     const observationId = `obs-${Date.now()}`;
+    this.lastObservationId = observationId;
     return {
       observationId,
       fingerprint: sha1(bodyText),

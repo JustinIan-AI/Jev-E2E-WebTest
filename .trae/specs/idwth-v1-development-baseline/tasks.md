@@ -60,8 +60,8 @@
   - `rule` TR-4.1: CDP 可连接并复用上下文，后台标签页不抢焦点，隔离 context 可注入 SUT 适配提供的 SPA 上下文键（如 openFuyao 的 `cluster=host`）；证据为 Provider 集成测试。
   - `rule` TR-4.2: dispose 后用户 Chrome 与 CDP 端点仍存活；证据为连接前后进程/端点检查和测试记录。
 
-## Task 5: 实现 L1/L2 定位、指纹与 Freshness 校验
-- **Status**: `pending`
+## Task 5: 实现 L1/L2 定位、指纹与 Freshness 校验【✅】
+- **Status**: `completed【✅】`
 - **Priority**: high
 - **Depends On**: Task 4
 - **Description**:
@@ -72,6 +72,10 @@
 - **Test Requirements**:
   - `rule` TR-5.1: 匹配数为 0、1、>1 时分别进入下一级、resolved、ambiguous；同名多按钮场景零派发；证据为定位单元和集成测试。
   - `rule` TR-5.2: Freshness 失效时只重解析一次，仍失效则 BLOCKED(drift)，且动态校验行不会导致目标子树误判；证据为 Freshness 测试结果。
+- **TDD 证据**:
+  - RED：`tests/unit/location.test.ts`（11 例）先行，模块缺失加载失败；真实 Chrome 集成 3 例（名称漂移 L2 命中、三件套任一不符即 miss、Freshness 作用域 + drift）。
+  - GREEN：新增 `src/engine-provider/playwright/fingerprint.ts`（composeDomPath/hashDomPath/fingerprintsEqual，role/name 不参与相等性）、`src/runtime/resolve.ts`（resolveDeterministic：L1 miss 且带指纹才进 L2，ambiguous 不降级）、`src/runtime/freshness.ts`（ensureFresh：只重解析一次，仍失效即 drift）；Provider 补 enumerateFingerprints/resolveByFingerprint/captureFingerprint/verifyFreshness（容器祖先 legend/heading 锚、Freshness 读取 2s 短超时防分离节点 30s 等待）。
+  - 验证：全量 86/86 通过（11 文件），`tsc --noEmit` 与 build 通过。
 
 ## Task 6: 实现执行状态机、Action 模型与 mutation 安全
 - **Status**: `pending`
