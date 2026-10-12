@@ -106,16 +106,75 @@ export type Action =
   | AssertOnlyAction
   | DoneAction;
 
-export type ActionResultStatus = 'success' | 'failed' | 'skipped' | 'blocked';
+/**
+ * §3.5 ActionResult 8 态（DD-12）。以 status 判别；专属字段 camelCase。
+ * dispatched 回答「mutation 是否已经发出去」——已派发超时/未知结果禁止自动重试（TR-6.2）。
+ */
+export type ActionResultStatus =
+  | 'ok'
+  | 'not_found'
+  | 'ambiguous'
+  | 'disabled'
+  | 'covered'
+  | 'timeout'
+  | 'nav_blocked'
+  | 'error';
 
-export interface ActionResult {
+export interface OkActionResult {
   kind: Action['kind'];
-  status: ActionResultStatus;
-  /** ★ 是否已真正派发到页面：mutation 超时/未知结果后禁止自动重试（TR-6.2）。 */
+  status: 'ok';
   dispatched: boolean;
-  errorCode?: string;
+}
+export interface NotFoundActionResult {
+  kind: Action['kind'];
+  status: 'not_found';
+  dispatched: boolean;
+  reason?: string;
+}
+export interface AmbiguousActionResult {
+  kind: Action['kind'];
+  status: 'ambiguous';
+  dispatched: boolean;
+  candidates?: number;
+}
+export interface DisabledActionResult {
+  kind: Action['kind'];
+  status: 'disabled';
+  dispatched: boolean;
+}
+export interface CoveredActionResult {
+  kind: Action['kind'];
+  status: 'covered';
+  dispatched: boolean;
+  by?: string;
+}
+export interface TimeoutActionResult {
+  kind: Action['kind'];
+  status: 'timeout';
+  dispatched: boolean;
+  deadlineMs?: number;
+}
+export interface NavBlockedActionResult {
+  kind: Action['kind'];
+  status: 'nav_blocked';
+  dispatched: boolean;
+  url?: string;
+}
+export interface ErrorActionResult {
+  kind: Action['kind'];
+  status: 'error';
+  dispatched: boolean;
   message?: string;
 }
+export type ActionResult =
+  | OkActionResult
+  | NotFoundActionResult
+  | AmbiguousActionResult
+  | DisabledActionResult
+  | CoveredActionResult
+  | TimeoutActionResult
+  | NavBlockedActionResult
+  | ErrorActionResult;
 
 /** 断言规格（七 DOM 原语 + http/backend/state；本任务实现 DOM 子集）。 */
 export type AssertionKind =
@@ -184,6 +243,8 @@ export interface EngineProviderConnectOptions {
   viewport?: { width: number; height: number };
   locale?: string;
   timezoneId?: string;
+  /** 单个 mutation 的动作截止（ms）；超时结果须区分是否已派发（TR-6.2）。 */
+  actionTimeoutMs?: number;
 }
 
 export type { EngineProviderConnectOptions as PlaywrightProviderOptions };

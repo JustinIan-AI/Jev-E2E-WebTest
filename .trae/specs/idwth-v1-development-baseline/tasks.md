@@ -77,8 +77,8 @@
   - GREEN：新增 `src/engine-provider/playwright/fingerprint.ts`（composeDomPath/hashDomPath/fingerprintsEqual，role/name 不参与相等性）、`src/runtime/resolve.ts`（resolveDeterministic：L1 miss 且带指纹才进 L2，ambiguous 不降级）、`src/runtime/freshness.ts`（ensureFresh：只重解析一次，仍失效即 drift）；Provider 补 enumerateFingerprints/resolveByFingerprint/captureFingerprint/verifyFreshness（容器祖先 legend/heading 锚、Freshness 读取 2s 短超时防分离节点 30s 等待）。
   - 验证：全量 86/86 通过（11 文件），`tsc --noEmit` 与 build 通过。
 
-## Task 6: 实现执行状态机、Action 模型与 mutation 安全
-- **Status**: `pending`
+## Task 6: 实现执行状态机、Action 模型与 mutation 安全【✅ 已完成】
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: Task 3, Task 5
 - **Description**:
@@ -89,6 +89,10 @@
 - **Test Requirements**:
   - `rule` TR-6.1: 各类 ActionResult 均有唯一终态和恢复策略映射；证据为状态机单元测试。
   - `rule` TR-6.2: dispatched mutation 超时/未知结果和 irreversible 失败均只 BLOCKED 一次，不发生第二次提交；证据为 mutation 安全集成测试。
+- **TDD 证据**:
+  - RED：[executor.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/executor.test.ts) 20 例（classifyFailure 唯一映射 7 + executeCase 13）先行失败；TR-6.2 两例真实 Chrome mutation 安全集成测试写入 [engine-provider.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/engine-provider.test.ts)。
+  - GREEN：[types.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/types.ts) ActionResult 8 态（ok/not_found/ambiguous/disabled/covered/timeout/nav_blocked/error，均携带 dispatched）+ actionTimeoutMs；[provider.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/engine-provider/playwright/provider.ts) act() 8 态重写与 Playwright 异常分类（遮挡→covered/未派发，TimeoutError 保守 dispatched=true）；[executor.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/executor.ts) §8.1 状态机（歧义/失效单次重解析/失败分流/recovery 1 次每步、3 次每例/postcondition 闸门，inconclusive→BLOCKED(evidence)）。
+  - 验证：全量 108/108 通过（12 文件，含 TR-6.2 真实副作用计数=1、covered 计数=0），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 7: 实现 run 级隔离、双标识论域收窄与 cleanup 终态
 - **Status**: `pending`

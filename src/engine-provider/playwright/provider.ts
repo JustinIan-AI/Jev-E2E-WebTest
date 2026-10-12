@@ -68,6 +68,9 @@ export class PlaywrightProvider implements EngineProvider {
   private active: Page | null;
   private disposed = false;
 
+  /** 单个 mutation 的动作截止（ms），默认 30s（§8.1 dispatch deadline）。 */
+  private actionTimeoutMs = 30_000;
+
   private constructor(
     browser: Browser,
     userContext: BrowserContext,
@@ -86,6 +89,7 @@ export class PlaywrightProvider implements EngineProvider {
     viewport?: { width: number; height: number };
     locale?: string;
     timezoneId?: string;
+    actionTimeoutMs?: number;
   }): Promise<PlaywrightProvider> {
     const { browser, context } = await attach(options.cdpEndpoint);
     const provider = new PlaywrightProvider(
@@ -93,6 +97,9 @@ export class PlaywrightProvider implements EngineProvider {
       context,
       options.originsAllowlist ?? [],
     );
+    if (options.actionTimeoutMs !== undefined) {
+      provider.actionTimeoutMs = options.actionTimeoutMs;
+    }
 
     // SPA 上下文引导同样需要作用于「复用的用户 context」中由我们新建的页：
     // 用户已有 context 不能加 init script 干扰其登录态，因此 seed 只在隔离 context 使用，
@@ -371,46 +378,101 @@ export class PlaywrightProvider implements EngineProvider {
     return current === this.lastObservationId;
   }
 
+  /**
+   * §3.5 / §8.1 派发与 8 态结果。
+   * 关键安全语义：结果必须回答「mutation 是否已经发出去」（dispatched）。
+   * 派发前的 actionability 失败（遮挡/禁用/分离）一定 dispatched=false，可恢复；
+   * 派发后回执超时（如同步阻塞渲染线程）事件可能已生效，必须 dispatched=true，
+   * Runtime 据此禁止任何自动重试（TR-6.2）。
+   */
   async act(action: Action): Promise<ActionResult> {
     if (this.disposed) {
-      return { kind: action.kind, status: 'blocked', dispatched: false };
+      return {
+        kind: action.kind,
+        status: 'error',
+        dispatched: false,
+        message: 'provider disposed',
+      };
     }
 
     switch (action.kind) {
       case 'navigate': {
+        // 越界源：返回结构化结果（不抛异常），Runtime → BLOCKED(env)，零派发。
         if (!isOriginAllowed(action.url, this.originsAllowlist)) {
-          throw new Error(`origin not in allowlist: ${action.url}`);
+          return {
+            kind: 'navigate',
+            status: 'nav_blocked',
+            dispatched: false,
+            url: action.url,
+          };
         }
-        const page = this.active ?? this.trackPage(await this.userContext.newPage());
-        await page.goto(action.url, { waitUntil: 'domcontentloaded' });
-        this.active = page;
-        return { kind: 'navigate', status: 'success', dispatched: true };
+        try {
+          const page = this.active ?? this.trackPage(await this.userContext.newPage());
+          await page.goto(action.url, {
+            waitUntil: 'domcontentloaded',
+            timeout: this.actionTimeoutMs,
+          });
+          this.active = page;
+          return { kind: 'navigate', status: 'ok', dispatched: true };
+        } catch (err) {
+          return {
+            kind: 'navigate',
+            status: 'error',
+            dispatched: true,
+            message: errorMessage(err),
+          };
+        }
       }
       case 'click':
       case 'fill':
       case 'select': {
-        const entry = this.resolveElement(action.target);
-        if (action.kind === 'click') {
-          await entry.locator.click();
-        } else if (action.kind === 'fill') {
-          await entry.locator.fill(action.value);
-        } else {
-          await entry.locator.selectOption(action.value);
+        let entry: { page: Page; locator: Locator };
+        try {
+          entry = this.resolveElement(action.target);
+        } catch (err) {
+          return {
+            kind: action.kind,
+            status: 'not_found',
+            dispatched: false,
+            reason: errorMessage(err),
+          };
         }
-        return { kind: action.kind, status: 'success', dispatched: true };
+        try {
+          const timeout = this.actionTimeoutMs;
+          if (action.kind === 'click') {
+            await entry.locator.click({ timeout });
+          } else if (action.kind === 'fill') {
+            await entry.locator.fill(action.value, { timeout });
+          } else {
+            await entry.locator.selectOption(action.value, { timeout });
+          }
+          return { kind: action.kind, status: 'ok', dispatched: true };
+        } catch (err) {
+          return classifyActionError(action.kind, err, this.actionTimeoutMs);
+        }
       }
       case 'scroll': {
-        await this.activePage().mouse.wheel(0, action.deltaY);
-        return { kind: 'scroll', status: 'success', dispatched: true };
+        try {
+          await this.activePage().mouse.wheel(0, action.deltaY);
+          return { kind: 'scroll', status: 'ok', dispatched: true };
+        } catch (err) {
+          return {
+            kind: 'scroll',
+            status: 'error',
+            dispatched: false,
+            message: errorMessage(err),
+          };
+        }
       }
       case 'wait': {
         await this.activePage().waitForTimeout(action.ms);
-        return { kind: 'wait', status: 'success', dispatched: false };
+        return { kind: 'wait', status: 'ok', dispatched: false };
       }
       case 'assert_only':
-        return { kind: 'assert_only', status: 'skipped', dispatched: false };
+        // 纯断言步：无浏览器动作，统一 ok / 非派发。
+        return { kind: 'assert_only', status: 'ok', dispatched: false };
       case 'done':
-        return { kind: 'done', status: 'success', dispatched: false };
+        return { kind: 'done', status: 'ok', dispatched: false };
     }
   }
 
@@ -643,4 +705,46 @@ export class PlaywrightProvider implements EngineProvider {
     if (!entry) throw new Error(`unknown elementId: ${String(target.elementId)}`);
     return entry;
   }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * 把 Playwright 动作异常映射到 ActionResult 8 态（§3.5 唯一映射表）。
+ *
+ * 顺序敏感：
+ *  1) 「拦截指针事件」是 actionability 阶段命中的遮挡 —— 事件尚未派发 → covered / dispatched=false；
+ *  2) 「元素被禁用」→ disabled（派发前）；
+ *  3) 「元素分离/已不在 DOM」→ not_found（派发前）；
+ *  4) 其余 TimeoutError（含事件已发出、回执因渲染线程阻塞等原因超时）
+ *     —— 无法证明未生效，保守 dispatched=true → timeout，禁止自动重试；
+ *  5) 其余异常 → error，同样保守 dispatched=true。
+ */
+function classifyActionError(
+  kind: 'click' | 'fill' | 'select',
+  err: unknown,
+  deadlineMs: number,
+): ActionResult {
+  const message = errorMessage(err);
+
+  if (/intercepts pointer events/i.test(message)) {
+    return { kind, status: 'covered', dispatched: false, by: 'intercepting element' };
+  }
+  if (/element (is )?(not )?(enabled|disabled)|toBeEnabled/i.test(message)) {
+    return { kind, status: 'disabled', dispatched: false };
+  }
+  if (/element is not attached to the (dom|document)|no longer( matches)?|frame was detached/i.test(message)) {
+    return { kind, status: 'not_found', dispatched: false, reason: message };
+  }
+
+  const isTimeout =
+    (err as { name?: string } | null)?.name === 'TimeoutError' ||
+    /timeout of \d+ms? exceeded|timed? ?out/i.test(message);
+  if (isTimeout) {
+    return { kind, status: 'timeout', dispatched: true, deadlineMs };
+  }
+
+  return { kind, status: 'error', dispatched: true, message };
 }

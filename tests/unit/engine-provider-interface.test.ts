@@ -41,7 +41,7 @@ describe('EngineProvider interface shape (TR-4.1 / AC-17)', () => {
         textExcerpt: '',
       }),
       resolve: async () => ({ status: 'miss' }),
-      act: async () => ({ kind: 'assert_only', status: 'skipped', dispatched: false }),
+      act: async () => ({ kind: 'assert_only', status: 'ok', dispatched: false }),
       checkAssertion: async () => ({ kind: 'visible', passed: false, status: 'inconclusive' }),
       screenshot: async () => ({ uri: 'artifact://fake.png', mediaType: 'image/png' }),
       trace: async () => ({ uri: 'artifact://fake.zip', mediaType: 'application/zip' }),

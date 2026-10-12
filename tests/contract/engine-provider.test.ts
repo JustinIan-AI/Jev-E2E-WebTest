@@ -9,6 +9,7 @@ import {
 } from '../../src/engine-provider/index.js';
 import { resolveDeterministic } from '../../src/runtime/resolve.js';
 import { ensureFresh } from '../../src/runtime/freshness.js';
+import { executeCase, type ExecutorCase } from '../../src/runtime/executor.js';
 import {
   cleanupCdpChrome,
   launchCdpChrome,
@@ -44,6 +45,24 @@ const PAGES: Record<string, string> = {
       <label>名称 <input id="name" type="text" /></label>
       <button id="save" type="button">保存</button>
     </form><div id="rows"></div></main>
+  </body></html>`,
+  // Mutation 安全夹具（TR-6.2）：
+  //  - #submit 的 click listener 先计数真实副作用，再同步阻塞渲染线程 3s ——
+  //    CDP Input.dispatchMouseEvent 的回执被延迟，Playwright 在短动作超时下报 TimeoutError，
+  //    但点击事件确已派发（window.__clicks===1），制造「已派发、结果未知」超时；
+  //  - #overlay 显示后全屏遮挡 #submit，制造派发前 actionability 失败（covered）；
+  //  - window.__clicks 是真实副作用计数，用于断言「绝不发生第二次提交」。
+  '/mutate': `<!doctype html><html><body>
+    <button id="submit" type="button">提交订单</button>
+    <div id="overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:#fff;"></div>
+    <script>
+      window.__clicks = 0;
+      document.getElementById('submit').addEventListener('click', () => {
+        window.__clicks += 1;
+        const until = Date.now() + 3000;
+        while (Date.now() < until) { /* 同步阻塞：延迟输入事件回执 */ }
+      });
+    </script>
   </body></html>`,
 };
 
@@ -83,11 +102,15 @@ describe('PlaywrightProvider over CDP —— Provider 契约 (TR-4.1 / TR-4.2)',
   async function makeProvider(overrides: {
     storageSeed?: Record<string, string>;
     originsAllowlist?: string[];
+    actionTimeoutMs?: number;
   } = {}): Promise<PlaywrightProvider> {
     return PlaywrightProvider.connect({
       cdpEndpoint: chrome.cdpEndpoint,
       ...(overrides.storageSeed ? { storageSeed: overrides.storageSeed } : {}),
       originsAllowlist: overrides.originsAllowlist ?? [baseUrl],
+      ...(overrides.actionTimeoutMs !== undefined
+        ? { actionTimeoutMs: overrides.actionTimeoutMs }
+        : {}),
       locale: 'zh-CN',
       timezoneId: 'Asia/Shanghai',
     });
@@ -158,12 +181,17 @@ describe('PlaywrightProvider over CDP —— Provider 契约 (TR-4.1 / TR-4.2)',
     await provider.dispose();
   });
 
-  it('navigate 受 originsAllowlist 约束：越界源被拒绝（配置错误路径）', async () => {
+  it('navigate 受 originsAllowlist 约束：越界源返回 nav_blocked 结果（不抛异常、零派发）', async () => {
     const provider = await makeProvider();
     const page = await provider.openForegroundTab(`${baseUrl}/button`);
-    await expect(
-      provider.act({ kind: 'navigate', risk: 'reversible', url: 'http://evil.example/' }),
-    ).rejects.toThrow(/allowlist|origin/i);
+    const r = await provider.act({
+      kind: 'navigate',
+      risk: 'reversible',
+      url: 'http://evil.example/',
+    });
+    expect(r.status).toBe('nav_blocked');
+    expect(r.dispatched).toBe(false);
+    if (r.status === 'nav_blocked') expect(r.url).toBe('http://evil.example/');
     await page.close().catch(() => undefined);
     await provider.dispose();
   });
@@ -365,6 +393,127 @@ describe('PlaywrightProvider over CDP —— Provider 契约 (TR-4.1 / TR-4.2)',
       initial,
     );
     expect(drifted.outcome).toBe('drift');
+    await page.close().catch(() => undefined);
+    await provider.dispose();
+  });
+
+  /**
+   * TR-6.2 mutation 安全（真实 Chrome）：给已解析目标盖上当前观测 id，
+   * 使 executeCase 的 Freshness 校验通过（真实 resolve 不自动盖章）。
+   */
+  async function stampObservation(
+    provider: PlaywrightProvider,
+    page: import('playwright').Page,
+    selector: string,
+  ): Promise<void> {
+    const obs = await provider.observe();
+    await page.evaluate(
+      ({ id, sel }) => {
+        (globalThis as unknown as { document: any }).document
+          .querySelector(sel)
+          .setAttribute('data-observation-id', id);
+      },
+      { id: obs.observationId, sel: selector },
+    );
+  }
+
+  it('TR-6.2: 已派发 mutation 超时只 BLOCKED(decision) 一次，绝不二次提交（真实副作用计数=1）', async () => {
+    // 600ms 动作截止，而页面 click listener 同步阻塞 3s → Playwright 点击超时，
+    // 但点击事件确已派发（listener 先自增 __clicks 再阻塞）。
+    const provider = await makeProvider({ actionTimeoutMs: 600 });
+    const page = await provider.openForegroundTab(`${baseUrl}/mutate`);
+
+    const initial = await provider.resolve(
+      { role: 'button', name: '提交订单', match: 'exact' },
+      'L1',
+    );
+    expect(initial.status).toBe('resolved');
+    await stampObservation(provider, page, '#submit');
+
+    let recoverCalls = 0;
+    const c: ExecutorCase = {
+      id: 'mutate.dispatched-timeout',
+      steps: [
+        {
+          intent: '提交订单',
+          action: 'click',
+          risk: 'irreversible',
+          target: { role: 'button', name: '提交订单', match: 'exact' },
+        },
+      ],
+    };
+    const result = await executeCase(c, provider, {
+      recover: async () => {
+        recoverCalls += 1;
+        return false;
+      },
+    });
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('decision');
+
+    // executor 层：不发生 recovery、不第二次 act。
+    expect(recoverCalls).toBe(0);
+
+    // 等渲染线程阻塞解除后读取真实副作用：恰好一次提交。
+    await page.waitForFunction(
+      () => (globalThis as unknown as { __clicks: number }).__clicks === 1,
+      undefined,
+      { timeout: 5_000 },
+    );
+    const clicks = await page.evaluate(
+      () => (globalThis as unknown as { __clicks: number }).__clicks,
+    );
+    expect(clicks).toBe(1);
+    await page.close().catch(() => undefined);
+    await provider.dispose();
+  });
+
+  it('TR-6.2: 派发前被遮挡的可逆动作可 recovery；recovery 后仍失败则只 BLOCKED 一次（不重复提交）', async () => {
+    const provider = await makeProvider({ actionTimeoutMs: 600 });
+    const page = await provider.openForegroundTab(`${baseUrl}/mutate`);
+
+    const initial = await provider.resolve(
+      { role: 'button', name: '提交订单', match: 'exact' },
+      'L1',
+    );
+    expect(initial.status).toBe('resolved');
+    await stampObservation(provider, page, '#submit');
+
+    // 显示全屏遮挡层：点击无法到达按钮（派发前 actionability 失败）。
+    await page.evaluate(() => {
+      (globalThis as unknown as { document: any }).document
+        .getElementById('overlay')
+        .style.setProperty('display', 'block');
+    });
+
+    let recoverCalls = 0;
+    const c: ExecutorCase = {
+      id: 'mutate.covered',
+      steps: [
+        {
+          intent: '提交订单',
+          action: 'click',
+          risk: 'reversible',
+          target: { role: 'button', name: '提交订单', match: 'exact' },
+          postcondition: [{ kind: 'visible' }],
+        },
+      ],
+    };
+    const result = await executeCase(c, provider, {
+      recover: async () => {
+        recoverCalls += 1;
+        // recovery 不解除遮挡：重新派发仍失败（验证单步上限 1 次）。
+        return true;
+      },
+    });
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('recovery');
+    expect(recoverCalls).toBe(1); // 恰好尝试一次 recovery
+
+    const clicks = await page.evaluate(
+      () => (globalThis as unknown as { __clicks: number }).__clicks,
+    );
+    expect(clicks).toBe(0); // 从未派发成功，无真实副作用
     await page.close().catch(() => undefined);
     await provider.dispose();
   });
