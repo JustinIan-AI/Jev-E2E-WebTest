@@ -147,7 +147,7 @@
   - 验证：Task 9 专项 31/31 通过；全量 20 文件 208/208 通过，`npx tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 10: 实现 CLI 命令路由、参数解析与退出码
-- **Status**: `pending`
+- **Status**: `completed`【✅】
 - **Priority**: high
 - **Depends On**: Task 9
 - **Description**:
@@ -157,6 +157,10 @@
 - **Acceptance Criteria Addressed**: AC-13
 - **Test Requirements**:
   - `rule` TR-10.1: 命令矩阵中的所有成功、失败、阻塞、配置错误、环境错误和取消路径均返回 0/1/2/3/4/130；证据为 CLI 契约测试。
+- **TDD 证据**:
+  - RED：[cli.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/cli.test.ts) 52 例先行失败（43 failed | 9 passed）：9 个 describe 覆盖帮助/版本/未知命令（含 daemon/serve/start-server 明确拒绝→3）、validate 真实 loader+validator（合法 yaml/json→0、缺 goal/base_url/参数/文件不存在/损坏 YAML/错误后缀/--json 合法非法形状）、init（脚手架目录、示例契约、env-probe.json、示例契约自校验）、run（缺路径/不存在/未知 flag/--repeat 与 --provider 与 --max-cost 非法值→3、注入 handler 全选项与默认选项解析、handler 返回 1/2、CancelledError→130、普通 Error→4）、replay（缺 trace/--verify+--heal 互斥/未知 flag→3、默认 verify=true、--heal、返回 2、CancelledError→130）、report（缺 run_id/--serve 拒绝→3、--open --export 透传、Error→4）、doctor（注入透传 cwd→0、未注入默认入口→4、--fix-all→3）、judge recompute（缺 run_id/未知子命令/归档不存在→3、seed PASS→0、seed FAIL→1、篡改 judge-result→HASH_MISMATCH→4、impl hash 漂移 BINDING_DRIFT→4）、真实子进程（`node --import tsx src/cli/index.ts` --version→0、坏契约 validate→3）。
+  - GREEN：[commands.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/cli/commands.ts)（UsageError/CancelledError、封闭命令集 COMMANDS 与 isCommandName、通用 parseCommand 支持 `--flag`/`--k=v`/`--k v`、parseRunOptions：repeat≥1 整数/provider mock|jev/maxCost>0/freeze/json；parseReplayArgs verify|heal 互斥默认 verify；parseReportArgs open/export；parseDoctorArgs 零 flag；CliDeps 可选 handler 注入与 Run/Replay/Report/Doctor Context 类型）；[index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/cli/index.ts)（`main(argv,{cwd,deps})` 依赖注入入口；七命令路由；mapError：CancelledError→130、UsageError|ContractConfigError→3、其他→4；init 生成 `.idwth/contracts`+`runs`、可自校验的示例契约、静态 env-probe.json 四要素；validate 走真实 loadContractFile+validateContract 并支持 --json；run/replay/report/doctor 未注入时打印 Task 14/15/11/16 交付说明并返回 4；judge recompute 接真实 recomputeJudge，integrity_error 三分类→4，match PASS/FAIL/其他→0/1/2；USAGE 含六退出码与 no daemon/server 声明）。修复 init 示例契约 test.id 连字符违规（`example.workload-create`→`example.workload.create`）。
+  - 验证：Task 10 专项 52/52 通过；全量 21 文件 260/260 通过，`npx tsc --noEmit`（noUncheckedIndexedAccess + exactOptionalPropertyTypes）与 `npm run build` 通过；既有 [cli-skeleton.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/cli-skeleton.test.ts) 4 例保持通过。
 
 ## Task 11: 实现报告导出与静态自包含 HTML 报告
 - **Status**: `pending`
