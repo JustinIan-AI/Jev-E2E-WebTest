@@ -29,3 +29,6 @@ export * from './judge/recompute.js';
 
 // Task 12: L3 语义决策编排（JEV 唯一模型介入点；仅 L1/L2 未命中时触发）。
 export * from './resolve-l3.js';
+
+// Task 15: replay verify/heal（四项逐步比对 / 漂移终止 / 候选隔离）与引擎缓存交付。
+export * from './replay/index.js';

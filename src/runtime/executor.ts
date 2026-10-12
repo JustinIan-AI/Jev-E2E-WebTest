@@ -21,9 +21,15 @@
 import type {
   Action,
   ActionResult,
+  ActionResultStatus,
+  AssertionKind,
+  AssertionResultStatus,
   AssertionSpec,
   EngineProvider,
+  ResolveMode,
   ResolveResult,
+  ResolveStatus,
+  ResolvedTarget,
   SemanticTarget,
 } from '../engine-provider/index.js';
 import { resolveDeterministic } from './resolve.js';
@@ -87,7 +93,29 @@ export interface DecisionCapability {
   secrets?: readonly string[];
 }
 
+/**
+ * Task 15：步级执行观测记录（onStep 观测钩子载荷；回放 trace 录制的原始输入）。
+ * 仅完成步骤产出记录；BLOCKED 步骤不产出（trace 只记录完成路径）。
+ */
+export interface StepExecutionRecord {
+  stepIndex: number;
+  intent: string;
+  action: Action['kind'];
+  /** 目标步骤的定位结果（无目标步骤缺省）。 */
+  resolve?: {
+    status: ResolveStatus;
+    mode?: ResolveMode;
+    strategy?: ResolvedTarget['strategy'];
+    elementId?: string | number;
+  };
+  actionResultStatus: ActionResultStatus;
+  dispatched?: boolean;
+  assertions?: Array<{ kind: AssertionKind; passed: boolean; status: AssertionResultStatus }>;
+}
+
 export interface ExecuteCaseOptions {
+  /** Task 15：步级观测钩子（纯观测，不改变执行语义；回放 trace 录制入口）。 */
+  onStep?: (record: StepExecutionRecord) => void;
   /**
    * Recovery 钩子：由编排层提供（重新展开导航/关闭弹层等）。
    * ★ 零参调用（A4）：Runtime 绝不递给钩子 Goal/Assertion 的可写句柄。
@@ -155,11 +183,11 @@ function blocked(
   };
 }
 
-function needsTarget(kind: Action['kind']): boolean {
+export function needsTarget(kind: Action['kind']): boolean {
   return kind === 'click' || kind === 'fill' || kind === 'select';
 }
 
-function buildAction(step: ExecutorStep, resolved: ResolveResult | null): Action {
+export function buildAction(step: ExecutorStep, resolved: ResolveResult | null): Action {
   switch (step.action) {
     case 'click':
       return {
@@ -207,6 +235,9 @@ export async function executeCase(
   const secrets = options.secrets ?? [];
 
   for (const [stepIndex, step] of c.steps.entries()) {
+    /** Task 15：本步观测记录素材（仅完成步骤 emit）。 */
+    let recordedResolve: StepExecutionRecord['resolve'];
+    const recordedAssertions: NonNullable<StepExecutionRecord['assertions']> = [];
     // ① 定位（L1→L2 确定性串行，均未命中才 L3）+ ② Freshness（失效只重解析一次）。
     let resolved: ResolveResult | null = null;
     if (needsTarget(step.action)) {
@@ -244,6 +275,12 @@ export async function executeCase(
       const freshness = await ensureFresh(provider, step.target, current);
       if (freshness.outcome === 'drift') return blocked('drift', decisions, recoveries);
       resolved = freshness.resolved;
+      recordedResolve = {
+        status: resolved.status,
+        ...(initial.mode !== undefined ? { mode: initial.mode } : {}),
+        ...(resolved.strategy !== undefined ? { strategy: resolved.strategy } : {}),
+        ...(resolved.elementId !== undefined ? { elementId: resolved.elementId } : {}),
+      };
     }
 
     // ③ 派发。
@@ -331,11 +368,23 @@ export async function executeCase(
           );
         }
         if (!r.passed) return blocked('postcondition', decisions, recoveries);
+        recordedAssertions.push({ kind: r.kind, passed: r.passed, status: r.status });
       }
     } else if (recovered) {
       // 理论不可达（循环内已拦截），保留防御性分支。
       return blocked('postcondition', decisions, recoveries);
     }
+
+    // Task 15：步级观测（trace 录制原始输入；纯观测，不影响执行语义）。
+    options.onStep?.({
+      stepIndex,
+      intent: step.intent,
+      action: step.action,
+      ...(recordedResolve ? { resolve: recordedResolve } : {}),
+      actionResultStatus: ar.status,
+      ...(ar.dispatched !== undefined ? { dispatched: ar.dispatched } : {}),
+      ...(recordedAssertions.length > 0 ? { assertions: recordedAssertions } : {}),
+    });
   }
 
   return {

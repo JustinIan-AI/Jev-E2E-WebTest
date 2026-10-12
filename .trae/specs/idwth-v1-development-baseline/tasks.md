@@ -236,7 +236,7 @@
   - 验证：全量 385/385 通过（31 文件，新增 31 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 15: 实现 replay verify/heal、漂移检测与引擎缓存交付
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-12：TDD——34 个新测试先行（RED：replay 模块缺失收集失败 ×5）→ GREEN 实现 verify 四项比对 + heal 候选隔离 + 引擎缓存交付层；全量 419/419（36 文件）、typecheck/build 全绿）
 - **Priority**: high
 - **Depends On**: Task 11, Task 14
 - **Description**:
@@ -247,6 +247,12 @@
 - **Test Requirements**:
   - `rule` TR-15.1: A6 页面漂移时报 BLOCKED(drift) 终止；A11 默认命令遇陈旧缓存报错，heal 产物不能被 CI 使用；证据为 Replay 集成测试。
   - `rule` TR-15.2: A7a 回放断网 SIR=0，A7b 首次空缓存需 L3 的步骤 BLOCKED(decision)，缓存版本不匹配不复用；证据为离线和缓存测试。
+- **TDD 证据**:
+  - RED：[replay-trace.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/replay-trace.test.ts)（5 例 onStep 观测/trace 组装）+ [engine-cache-delivery.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/engine-cache-delivery.test.ts)（9 例写入/命中/缺失/失效/打包/离线往返）+ [replay-verify.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/integration/replay-verify.test.ts)（9 例零模型/四项漂移/A11 陈旧缓存/步数守卫）+ [replay-heal.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/integration/replay-heal.test.ts)（8 例 L3 候选/审计/守卫/CI 隔离/不回写）+ [offline-engine-cache.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/integration/offline-engine-cache.test.ts)（4 例 A7a/A7b/版本不匹配）先行失败——replay 模块不存在收集失败 ×5。
+  - GREEN：新增 [trace.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/replay/trace.ts)（TraceFile `idwth.trace/1`：caseId/engineProviderVersion/recordedAt/verdict/steps）、[verify.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/replay/verify.ts)（replayVerify：类型级零模型——不接收决策能力，仅 L1/L2 resolveDeterministic；四项逐步比对 resolve.matched/resolve.strategy/action_result.status/assertion_results，任一漂移即 DriftPoint + BLOCKED(drift) 立即终止（漂移步不派发）；A11 stale-cache 前置报错零执行；步数不一致报配置错误）、[heal.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/replay/heal.ts)（replayHeal：决策能力必填否则拒绝；定位级漂移→候选 CandidateStrategy status:'candidate' 待人确认、L1/L2 miss→resolveWithL3 唯一模型介入点、decisions 审计入档 + modelCalls 计数；动作/断言失败按 §3.5/§8.2 唯一映射分流；绝不回写 Trace）、[engine-cache.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/replay/engine-cache.ts)（writeEngineCache 按版本分目录 manifest 落盘、loadEngineCache hit/miss/stale 三态（schema/版本不匹配→失效告警且 entries 不外泄，消费 Task 14 engineCacheDir/checkCacheVersion）、packEngineCache 离线包描述版本校验拒错配）、[ci-gate.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/replay/ci-gate.ts)（isCiUsableReplayOutcome：verify 可入 CI、heal 一律 false）；[executor.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/executor.ts) 增 StepExecutionRecord + onStep 纯观测钩子（trace 录制原始输入，不改执行语义）并导出 buildAction/needsTarget；[runtime/index.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/index.ts) 导出 replay barrel。
+  - TR-15.1 证据：A6 —— 页面改版（L1 不再命中）→ DriftPoint{field:'resolve.matched',recorded:'resolved',replayed:'miss'} + BLOCKED(drift) 终止（漂移步 actCalls 不增、stepsExecuted=1）；四项各有专项（strategy 换级不静默派发、action not_found、assertion failed）；A11 —— manifest 版本被篡改 → stale-cache 报错（stepsExecuted=0/actCalls=0/零模型，绝不静默 heal 后 PASS），缓存命中则正常回放；CI 隔离 —— isCiUsableReplayOutcome(heal)=false（含 healed 与 match），heal 全程不篡改录制 trace。
+  - TR-15.2 证据：A7a —— 引擎缓存命中 + 断网 fake（resolve('L3') 抛错）→ 确定性路径全部可跑 outcome=match、modelCalls=0（SIR=0）；A7b —— 首次态空缓存（loadEngineCache=miss）+ 未注入决策 → L1/L2 步骤真实跑过（navigate 已派发）、需 L3 步骤 BLOCKED(decision)、L3 零触达；版本不匹配 —— 版本目录隔离 miss 不沿用、manifest 错包 → stale 且 entries 不外泄。
+  - 验证：全量 419/419 通过（36 文件，新增 34 例），`tsc --noEmit` 与 `npm run build` 通过。
 
 ## Task 16: 实现 repeat 稳定性门禁、doctor 与运行指标
 - **Status**: `pending`
