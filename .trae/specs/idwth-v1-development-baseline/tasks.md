@@ -21,7 +21,7 @@
 - **Notes**: 不编写业务代码；工程骨架必须允许后续通过 npm scripts 或等价命令完成验证。
 
 ## Task 2: 定义七个 Skill 声明与四类核心 Schema
-- **Status**: `pending`
+- **Status**: `completed【✅】`（2026-10-12：7 个 SKILL.md 统一 frontmatter 校验通过；Contract/Action/Strategy/Trace 四类 JSON Schema 合法样例通过、非法样例拒绝；23 个契约测试全绿）
 - **Priority**: high
 - **Depends On**: Task 1
 - **Description**:

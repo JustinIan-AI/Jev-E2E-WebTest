@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "idwth.schemas.strategy.v1",
+  "title": "IDWTH Frozen Strategy",
+  "type": "object",
+  "required": ["schema", "contract_id", "version", "bindings", "flows"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "idwth.strategy.v1" },
+    "contract_id": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": { "enum": ["human-confirm"] },
+    "bindings": {
+      "type": "object",
+      "required": [
+        "contract_hash",
+        "strategy_hash",
+        "judge_impl_hash",
+        "runner_version",
+        "env_fingerprint",
+        "engine_provider_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "contract_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "strategy_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "judge_impl_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "runner_version": { "type": "string" },
+        "env_fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "engine_provider_version": { "type": "string" }
+      }
+    },
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_index", "intent", "strategy"],
+        "additionalProperties": false,
+        "properties": {
+          "step_index": { "type": "integer", "minimum": 0 },
+          "intent": { "type": "string" },
+          "strategy": { "enum": ["role", "label", "text", "fingerprint", "model"] },
+          "fingerprint": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string" },
+              "name": { "type": "string" },
+              "dom_path_hash": { "type": "string" },
+              "sibling_ordinal": { "type": "integer", "minimum": 0 },
+              "anchor_text": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "confirmed_runs": { "type": "integer", "minimum": 0 },
+          "last_success_run_id": { "type": "string" }
+        }
+      }
+    }
+  }
+}

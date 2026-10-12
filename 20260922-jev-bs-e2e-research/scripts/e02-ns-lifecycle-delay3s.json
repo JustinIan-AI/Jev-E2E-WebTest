@@ -1,0 +1,278 @@
+{
+  "authorized_scope": "仅创建/删除测试命名空间",
+  "base": "https://192.168.36.152:31616",
+  "cluster": "host",
+  "run_id": "idwth-20260923-e03490",
+  "run_started_at": "2026-09-23T15:02:11+0800",
+  "run_started_at_epoch": 1790146931.7065878,
+  "baseline_namespaces": {
+    "default": "2026-07-22T09:25:27Z",
+    "ingress-nginx": "2026-07-22T09:26:42Z",
+    "kube-node-lease": "2026-07-22T09:25:27Z",
+    "kube-public": "2026-07-22T09:25:27Z",
+    "kube-system": "2026-07-22T09:25:27Z",
+    "monitoring": "2026-07-22T09:27:41Z",
+    "oauth-code-token": "2026-07-22T09:30:49Z",
+    "openfuyao-system": "2026-07-22T09:26:36Z",
+    "openfuyao-system-controller": "2026-07-22T09:25:48Z",
+    "session-secret": "2026-07-22T09:28:02Z"
+  },
+  "create_response": {
+    "http": 201,
+    "body_excerpt": "{\n  \"kind\": \"Namespace\",\n  \"apiVersion\": \"v1\",\n  \"metadata\": {\n    \"name\": \"idwth-20260923-e03490\",\n    \"uid\": \"1668fecc-b713-43b0-a85b-1ed43cf72148\",\n    \"resourceVersion\": \"7984159\",\n    \"creationTimestamp\": \"2026-09-23T07:02:14Z\",\n    \"labels\": {\n      \"idwth.io/managed-by\": \"lifecycle-probe\",\n      \"idwth.io/run-id\": \"idwth-20260923-e03490\",\n      \"kubernetes.io/metadata.name\": \"idwth-20260923"
+  },
+  "label_selector": {
+    "self": 1,
+    "other": 0,
+    "managed_by": 1
+  },
+  "release_trail": [
+    {
+      "t": 0.0,
+      "http": 200,
+      "phase": "Terminating"
+    },
+    {
+      "t": 2.1,
+      "http": 200,
+      "phase": "Terminating"
+    },
+    {
+      "t": 4.1,
+      "http": 200,
+      "phase": "Terminating"
+    },
+    {
+      "t": 6.2,
+      "http": 404,
+      "phase": null
+    }
+  ],
+  "after_namespaces": {
+    "default": "2026-07-22T09:25:27Z",
+    "ingress-nginx": "2026-07-22T09:26:42Z",
+    "kube-node-lease": "2026-07-22T09:25:27Z",
+    "kube-public": "2026-07-22T09:25:27Z",
+    "kube-system": "2026-07-22T09:25:27Z",
+    "monitoring": "2026-07-22T09:27:41Z",
+    "oauth-code-token": "2026-07-22T09:30:49Z",
+    "openfuyao-system": "2026-07-22T09:26:36Z",
+    "openfuyao-system-controller": "2026-07-22T09:25:48Z",
+    "session-secret": "2026-07-22T09:28:02Z"
+  },
+  "diff": {
+    "added": [],
+    "removed": [],
+    "changed": []
+  },
+  "steps": [
+    {
+      "id": "P0-1",
+      "desc": "基线可读（只读，非写操作）",
+      "expect": "HTTP 200",
+      "actual": "HTTP 200, 10 个 ns",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P0-2",
+      "desc": "基线中是否已有 idwth-* 残留",
+      "expect": "0 个",
+      "actual": "0 个 []",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P1-1",
+      "desc": "创建 idwth-20260923-e03490",
+      "expect": "HTTP 201",
+      "actual": "HTTP 201",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P2-1",
+      "desc": "同名再创建",
+      "expect": "HTTP 409 AlreadyExists（可判定，非静默成功）",
+      "actual": "HTTP 409",
+      "verdict": "PASS",
+      "body_excerpt": "{\n  \"kind\": \"Status\",\n  \"apiVersion\": \"v1\",\n  \"metadata\": {},\n  \"status\": \"Failure\",\n  \"message\": \"namespaces \\\"idwth-20260923-e03490\\\" already exists\",\n  \"reason\": \"AlreadyExists\",\n  \"details\": {\n   "
+    },
+    {
+      "id": "P3-1",
+      "desc": "GET 命名空间",
+      "expect": "HTTP 200",
+      "actual": "HTTP 200",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P3-2",
+      "desc": "归属标签回读一致",
+      "expect": "idwth.io/run-id=idwth-20260923-e03490",
+      "actual": "idwth.io/run-id=idwth-20260923-e03490",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P3-3",
+      "desc": "creationTimestamp 与 run 起始的可分辨性（`created_at > run_start` 判据可用性）",
+      "expect": "created_at 与 run_start 可区分",
+      "actual": "created_at=2026-09-23T07:02:14Z  与 run_start 相差 +2.293s",
+      "verdict": "PASS",
+      "note": "K8s 时间戳仅秒级精度；相差 <1s 时严格 `>` 判据在边界翻转 —— 见报告结论",
+      "delta_seconds": 2.293412208557129,
+      "run_start_epoch": 1790146931.7065878,
+      "created_epoch": 1790146934.0
+    },
+    {
+      "id": "P4-1",
+      "desc": "列 pods",
+      "expect": "HTTP 200",
+      "actual": "HTTP 200, items=0 []",
+      "verdict": "PASS",
+      "item_names": [],
+      "auto_injected": []
+    },
+    {
+      "id": "P4-2",
+      "desc": "列 configmaps",
+      "expect": "HTTP 200",
+      "actual": "HTTP 200, items=1 ['kube-root-ca.crt']",
+      "verdict": "PASS",
+      "item_names": [
+        "kube-root-ca.crt"
+      ],
+      "auto_injected": [
+        "kube-root-ca.crt"
+      ]
+    },
+    {
+      "id": "P4-2-note",
+      "desc": "★ configmaps 含 K8s 自动注入对象（不是残留，但也非空）",
+      "expect": "已识别",
+      "actual": "auto_injected=['kube-root-ca.crt']",
+      "verdict": "INFO"
+    },
+    {
+      "id": "P4-3",
+      "desc": "列 services",
+      "expect": "HTTP 200",
+      "actual": "HTTP 200, items=0 []",
+      "verdict": "PASS",
+      "item_names": [],
+      "auto_injected": []
+    },
+    {
+      "id": "P4b-1",
+      "desc": "labelSelector 精确命中本次 runId",
+      "expect": "HTTP 200, 匹配 1 个",
+      "actual": "HTTP 200, 匹配 1 个",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P4b-2",
+      "desc": "labelSelector 对不存在的 runId 返回空（不会误伤他人）",
+      "expect": "HTTP 200, 匹配 0 个",
+      "actual": "HTTP 200, 匹配 0 个",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P4b-3",
+      "desc": "labelSelector 按 managed-by 扫**全部** idwth 测试 ns（孤儿巡检入口）",
+      "expect": "HTTP 200",
+      "actual": "HTTP 200, 匹配 1 个",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P5-1",
+      "desc": "DELETE 命名空间",
+      "expect": "HTTP 200/202",
+      "actual": "HTTP 200",
+      "verdict": "PASS",
+      "body_excerpt": "{\n  \"kind\": \"Namespace\",\n  \"apiVersion\": \"v1\",\n  \"metadata\": {\n    \"name\": \"idwth-20260923-e03490\",\n    \"uid\": \"1668fecc-b713-43b0-a85b-1ed43cf72148\",\n    \"resourceVersion\": \"7984163\",\n    \"creationTi"
+    },
+    {
+      "id": "P6-1",
+      "desc": "命名空间最终消失",
+      "expect": "HTTP 404",
+      "actual": "HTTP 404, 耗时 6.2s",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P6-2",
+      "desc": "释放耗时可接受（<30s，决定 cleanup 是否阻塞 CI）",
+      "expect": "< 30s",
+      "actual": "6.2s",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P7-1",
+      "desc": "重复删除",
+      "expect": "HTTP 404（幂等，非报错）",
+      "actual": "HTTP 404",
+      "verdict": "PASS",
+      "body_excerpt": "{\n  \"kind\": \"Status\",\n  \"apiVersion\": \"v1\",\n  \"metadata\": {},\n  \"status\": \"Failure\",\n  \"message\": \"namespaces \\\"idwth-20260923-e03490\\\" not found\",\n  \"reason\": \"NotFound\",\n  \"details\": {\n    \"name\": \""
+    },
+    {
+      "id": "P8-1",
+      "desc": "无新增残留命名空间",
+      "expect": "0",
+      "actual": "0 []",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P8-2",
+      "desc": "无删除已有命名空间",
+      "expect": "0",
+      "actual": "0 []",
+      "verdict": "PASS"
+    },
+    {
+      "id": "P8-3",
+      "desc": "无修改已有命名空间",
+      "expect": "0",
+      "actual": "0 []",
+      "verdict": "PASS"
+    }
+  ],
+  "audit": [
+    {
+      "ts": "2026-09-23T15:02:14+0800",
+      "op": "create-namespace",
+      "target": "idwth-20260923-e03490",
+      "http": 201,
+      "result": "ok"
+    },
+    {
+      "ts": "2026-09-23T15:02:14+0800",
+      "op": "create-namespace(dup)",
+      "target": "idwth-20260923-e03490",
+      "http": 409,
+      "result": "idempotent-reject"
+    },
+    {
+      "ts": "2026-09-23T15:02:14+0800",
+      "op": "get-namespace",
+      "target": "idwth-20260923-e03490",
+      "http": 200,
+      "result": "?"
+    },
+    {
+      "ts": "2026-09-23T15:02:15+0800",
+      "op": "delete-namespace",
+      "target": "idwth-20260923-e03490",
+      "http": 200,
+      "result": "ok"
+    },
+    {
+      "ts": "2026-09-23T15:02:21+0800",
+      "op": "delete-namespace(2nd)",
+      "target": "idwth-20260923-e03490",
+      "http": 404,
+      "result": "idempotent"
+    }
+  ],
+  "summary": {
+    "total": 20,
+    "pass": 20,
+    "fail": 0,
+    "write_ops": 5,
+    "namespaces_left_behind": []
+  }
+}

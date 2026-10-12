@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "idwth.schemas.trace.v1",
+  "title": "IDWTH Trace",
+  "type": "object",
+  "required": [
+    "schema",
+    "run_id",
+    "test_id",
+    "bindings",
+    "started_at",
+    "execution_policy",
+    "runtime",
+    "judge_result",
+    "verdict_hash",
+    "episodes",
+    "evidence",
+    "cleanup"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "idwth.trace.v1" },
+    "run_id": { "type": "string" },
+    "test_id": { "type": "string" },
+    "bindings": {
+      "type": "object",
+      "required": [
+        "contract_hash",
+        "strategy_hash",
+        "judge_impl_hash",
+        "runner_version",
+        "env_fingerprint",
+        "engine_provider_version"
+      ],
+      "properties": {
+        "contract_hash": { "type": "string" },
+        "strategy_hash": { "type": "string" },
+        "judge_impl_hash": { "type": "string" },
+        "runner_version": { "type": "string" },
+        "env_fingerprint": { "type": "string" },
+        "engine_provider_version": { "type": "string" }
+      }
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "execution_policy": { "enum": ["deterministic", "semantic", "mixed"] },
+    "runtime": { "enum": ["ci", "agent"] },
+    "judge_result": {
+      "type": "object",
+      "required": ["verdict", "evaluated_at", "judge_version"],
+      "properties": {
+        "verdict": { "enum": ["PASS", "FAIL", "BLOCKED"] },
+        "blocked_reason": {
+          "enum": ["env", "ambiguity", "evidence", "decision", "recovery", "postcondition", "drift", null]
+        },
+        "assertions": { "type": "array" },
+        "evaluated_at": { "type": "string", "format": "date-time" },
+        "judge_version": { "type": "string" }
+      }
+    },
+    "verdict_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "verdict_snapshot": { "enum": ["PASS", "FAIL", "BLOCKED"] },
+    "episodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_index", "intent", "risk", "path"],
+        "properties": {
+          "step_index": { "type": "integer", "minimum": 0 },
+          "intent": { "type": "string" },
+          "risk": { "enum": ["reversible", "irreversible"] },
+          "path": { "enum": ["deterministic", "semantic", "recovery"] },
+          "resolve": { "type": "object" },
+          "actions": { "type": "array" },
+          "action_result": { "type": "object" },
+          "jev_calls": { "type": "array" },
+          "recovery": { "type": "object" },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["judgement_set", "archived"],
+      "properties": {
+        "judgement_set": { "type": "array" },
+        "archived": { "type": "array" }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "required": ["executed"],
+      "properties": {
+        "executed": { "type": "boolean" },
+        "scope": { "type": "string" },
+        "issues": { "type": "array" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "total_steps": { "type": "integer" },
+        "semantic_resolved_steps": { "type": "integer" },
+        "deterministic_action_count": { "type": "integer" },
+        "recovery_count": { "type": "integer" },
+        "total_latency_ms": { "type": "integer" }
+      }
+    }
+  }
+}
