@@ -1,0 +1,4 @@
+# Ignore all runtime artifacts...
+*
+# ...but keep this rules file under version control.
+!.gitignore

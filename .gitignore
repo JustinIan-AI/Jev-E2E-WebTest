@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test / coverage output
+coverage/
+*.tsbuildinfo
+
+# IDWTH runtime artifacts (run-scoped working directory)
+.idwth/runs/
+.idwth/engine-cache/
+.idwth/tmp/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
