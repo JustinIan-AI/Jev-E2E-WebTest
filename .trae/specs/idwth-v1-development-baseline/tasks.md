@@ -47,7 +47,7 @@
   - `rule` TR-3.2: 任一绑定项变化都会触发告警、拒绝固化或 BLOCKED(drift)；证据为绑定集成测试结果。
 
 ## Task 4: 实现 EngineProvider 接口、CDP 接管与浏览器隔离
-- **Status**: `pending`
+- **Status**: `completed【✅】`（TDD 证据：`tests/unit/engine-provider-interface.test.ts` 5 用例验证接口形状/能力集/类型字面量；`tests/contract/engine-provider.test.ts` 11 个真实 Chromium over CDP 集成测试覆盖 TR-4.1（复用上下文、后台标签页不抢焦点、强隔离 cookie、SPA seed 键 cluster=host、allowlist）与 TR-4.2（dispose 后进程/CDP 端点存活且可重连）；实现 `src/engine-provider/{types.ts,index.ts,playwright/{attach,background-tab,isolation,provider}.ts}`；全量 72/72 测试通过，typecheck/build 通过）
 - **Priority**: high
 - **Depends On**: Task 1
 - **Description**:

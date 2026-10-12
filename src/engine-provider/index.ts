@@ -1,5 +1,8 @@
 /**
- * EngineProvider layer — the single replaceable execution boundary (DD §5.0).
- * Interface + Playwright adapter: Task 4; e2e adapter: Task 14; cache: Task 15.
+ * §5.0 EngineProvider 层 —— 唯一可替换执行引擎点。
  */
-export const ENGINE_PROVIDER_LAYER = 'engine-provider';
+export * from './types.js';
+export { PlaywrightProvider } from './playwright/provider.js';
+export { attach, detach, isOriginAllowed } from './playwright/attach.js';
+export { openBackgroundTab } from './playwright/background-tab.js';
+export { newIsolatedContext } from './playwright/isolation.js';
