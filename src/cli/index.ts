@@ -24,6 +24,7 @@ import {
 } from './commands.js';
 import { EXIT_CODES } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
+import { defaultRunHandler } from './run-handler.js';
 import { RUNS_DIR } from './paths.js';
 import { ContractConfigError, loadContractFile } from '../runtime/contract/loader.js';
 import { validateContract } from '../runtime/contract/validate.js';
@@ -242,12 +243,9 @@ async function cmdRun(rest: readonly string[], cwd: string, deps: CliDeps): Prom
   // 用例写错了先挡在执行之前（exit 3），不进入 runner。
   const loaded = await loadContractFile(path.resolve(cwd, contractPath));
 
-  if (deps.run === undefined) {
-    process.stderr.write('idwth: run 执行能力将在 Task 14 交付；当前版本仅提供命令入口与参数校验\n');
-    return EXIT_CODES.RUNTIME_ERROR;
-  }
   const ctx: RunContext = { cwd, loaded, options };
-  return await deps.run(ctx);
+  const handler = deps.run ?? defaultRunHandler;
+  return await handler(ctx);
 }
 
 // ---------------------------------------------------------------------------

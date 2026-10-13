@@ -35,6 +35,17 @@ interface RawFingerprint {
   anchorText: string[];
 }
 
+/**
+ * 节点身份锚点的最小结构接口（playwright ElementHandle 的子集）。
+ * 以结构类型而非 ElementHandle<SVGElement|HTMLElement> 命名，避免源码依赖 DOM lib
+ * （tsconfig lib 仅 ES2022；tests 可经 triple-slash 引入 dom，build 时 src 不引入）。
+ */
+interface NodeAnchor {
+  // el 显式 any：回调运行在浏览器上下文，工程源码不引入 DOM lib。
+  evaluate<T>(fn: (el: any) => T): Promise<T>;
+  dispose(): Promise<void>;
+}
+
 const nodeRequire = createRequire(import.meta.url);
 const playwrightPkg = nodeRequire('playwright/package.json') as { version: string };
 
@@ -54,8 +65,15 @@ export class PlaywrightProvider implements EngineProvider {
   private readonly userContext: BrowserContext;
   private readonly originsAllowlist: readonly string[];
 
-  /** 元素注册表：elementId → { page, locator }；id 由代码生成，不来自模型。 */
-  private readonly elementRegistry = new Map<string, { page: Page; locator: Locator }>();
+  /**
+   * 元素注册表：elementId → { page, locator, handle? }；id 由代码生成，不来自模型。
+   * handle 是解析时刻的节点身份锚点（§5.5.6 Freshness）——Locator 是重查询，
+   * 无法区分 cloneNode 等属性复制式替换；身份判断必须锚定具体 DOM 节点。
+   */
+  private readonly elementRegistry = new Map<
+    string,
+    { page: Page; locator: Locator; handle?: NodeAnchor }
+  >();
   private elementSeq = 0;
 
   /** 最近一次 observe 的 observationId（Freshness 比对基准，Runtime 独占）。 */
@@ -210,9 +228,22 @@ export class PlaywrightProvider implements EngineProvider {
     if (count === 0) return { status: 'miss' };
     if (count > 1) return { status: 'ambiguous', count }; // ★ 禁 .first() 兜底
 
-    const elementId = `el-${++this.elementSeq}`;
-    this.elementRegistry.set(elementId, { page, locator });
+    const elementId = await this.registerResolved(page, locator);
     return { status: 'resolved', mode: 'L1', elementId, strategy };
+  }
+
+  /** 解析登记：分配 elementId 并捕获节点身份锚点（Freshness 用，捕获失败仅降级为戳比对）。 */
+  private async registerResolved(page: Page, locator: Locator): Promise<string> {
+    const elementId = `el-${++this.elementSeq}`;
+    const handle = (await locator
+      .elementHandle({ timeout: 2_000 })
+      .catch(() => null)) as unknown as NodeAnchor | null;
+    this.elementRegistry.set(elementId, {
+      page,
+      locator,
+      ...(handle !== null ? { handle } : {}),
+    });
+    return elementId;
   }
 
   /**
@@ -332,8 +363,7 @@ export class PlaywrightProvider implements EngineProvider {
 
     const raw = matches[0]!;
     const locator = page.locator(`[data-idwth-l2="${raw.token}"]`);
-    const elementId = `el-${++this.elementSeq}`;
-    this.elementRegistry.set(elementId, { page, locator });
+    const elementId = await this.registerResolved(page, locator);
     return {
       status: 'resolved',
       mode: 'L2',
@@ -364,9 +394,12 @@ export class PlaywrightProvider implements EngineProvider {
   }
 
   /**
-   * Freshness 原语（§5.5.6）：读取 resolved 元素子树根（即元素本身）的
-   * data-observation-id，与最近一次 observe 的 observationId 比对。
+   * Freshness 原语（§5.5.6）：校验 resolved 元素是否仍是最近一次观测中的节点。
    * 作用域限定目标节点，子树外动态校验行不参与判断。
+   *
+   * 身份锚点优先：resolve 时刻的 ElementHandle 仍连接（未被替换/分离）且携带
+   * 当前观测戳才算新鲜 —— cloneNode 等属性复制式替换只改 DOM 身份、不改属性，
+   * 仅靠戳比对会把克隆节点误判为原节点；必须锚定具体 DOM 节点。
    */
   async verifyFreshness(
     _target: SemanticTarget,
@@ -376,8 +409,21 @@ export class PlaywrightProvider implements EngineProvider {
       ? this.elementRegistry.get(String(resolved.elementId))
       : undefined;
     if (!entry || !this.lastObservationId) return false;
-    // 元素已被替换（分离）时 getAttribute 默认会自动等待 30s；
-    // Freshness 是廉价只读校验，给短超时，分离/缺失立即视为不新鲜。
+
+    if (entry.handle) {
+      // 元素被替换（分离）时 locator 查询默认会自动等待 30s；
+      // Freshness 是廉价只读校验，统一给短超时，分离/失效立即视为不新鲜。
+      const state = await entry.handle
+        .evaluate((el) => ({
+          connected: el.isConnected,
+          stamp: el.getAttribute('data-observation-id'),
+        }))
+        .catch(() => null);
+      if (state === null) return false; // 句柄失效（导航/上下文销毁）→ 不新鲜
+      return state.connected && state.stamp === this.lastObservationId;
+    }
+
+    // 回退：登记时未捕获到身份锚点（极端竞态）→ 仅比对戳。
     const current = await entry.locator
       .getAttribute('data-observation-id', { timeout: 2_000 })
       .catch(() => null);
@@ -588,11 +634,29 @@ export class PlaywrightProvider implements EngineProvider {
       enabled: boolean;
       guardInput: number;
     }
-    const records = await page.evaluate((): RawObserved[] => {
+    const raw = await page.evaluate((): { obsId: string; records: RawObserved[] } => {
       const doc = (globalThis as unknown as { document: any }).document;
-      const selector =
+      const interactiveSelector =
         'button,a,input,select,textarea,[role],[onclick],summary';
-      return Array.from(doc.querySelectorAll(selector)).map((el: any, i: number) => {
+      const obsId = `obs-${Date.now()}`;
+      // 交互元素 ∪ 直接文本元素：dom 断言目标常是非交互文本节点
+      // （toast/状态栏/表格单元格，如「部署完成」），只枚举交互元素会让
+      // judge 的 visible/absent 断言无证据可评（诚实归档要求证据完整）。
+      const TEXT_SKIP = new Set([
+        'script', 'style', 'noscript', 'template', 'br', 'head', 'title', 'meta', 'link',
+      ]);
+      const seen = new Set(Array.from(doc.querySelectorAll(interactiveSelector)) as any[]);
+      const textOnly: any[] = [];
+      for (const el of (doc.body ? doc.body.querySelectorAll('*') : []) as any[]) {
+        if (textOnly.length >= 400) break; // 大页面证据上限，防观测爆炸
+        if (seen.has(el) || TEXT_SKIP.has(el.tagName.toLowerCase())) continue;
+        const hasDirectText = Array.from(el.childNodes).some(
+          (n: any) => n.nodeType === 3 && n.textContent && n.textContent.trim().length > 0,
+        );
+        if (hasDirectText) textOnly.push(el);
+      }
+      const all = [...seen, ...textOnly];
+      const records = all.map((el: any, i: number) => {
         const type = el.getAttribute('type') ?? el.tagName.toLowerCase();
         const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
         const skipValue = isInput && ['password', 'file', 'hidden'].includes(type);
@@ -617,19 +681,25 @@ export class PlaywrightProvider implements EngineProvider {
           guardInput: el.outerHTML.length,
         };
       });
+      // §5.5.6 Freshness 基准：观测时给全部观测元素盖 data-observation-id 戳，
+      // verifyFreshness 据此判断 resolved 元素是否仍在最近一次观测中。
+      for (const el of all) {
+        el.setAttribute('data-observation-id', obsId);
+      }
+      return { obsId, records };
     });
 
     const bodyText = await page.evaluate(
       () => (globalThis as unknown as { document: any }).document.body.innerText.slice(0, 4000),
     );
-    const observationId = `obs-${Date.now()}`;
+    const observationId = raw.obsId;
     this.lastObservationId = observationId;
     return {
       observationId,
       fingerprint: sha1(bodyText),
       url: page.url(),
       title: await page.title(),
-      elements: records.map((r) => ({
+      elements: raw.records.map((r) => ({
         id: r.id,
         role: r.role,
         name: r.name,
@@ -701,6 +771,9 @@ export class PlaywrightProvider implements EngineProvider {
     }
     for (const context of this.ownedContexts) {
       await context.close().catch(() => undefined);
+    }
+    for (const entry of this.elementRegistry.values()) {
+      await entry.handle?.dispose().catch(() => undefined); // 释放节点身份锚点
     }
     this.elementRegistry.clear();
     await detach(this.browser);
