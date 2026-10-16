@@ -318,6 +318,26 @@
   - TR-18.1 CI 运行记录（真实 GitHub Actions）：① run 38244794520 失败——runner 未装 Chromium（CDP endpoint not ready）→ workflow 补 `npx playwright install --with-deps chromium`（2d3f0df）；② run 38244942944 失败——Ubuntu 24.04 AppArmor 限制 unprivileged userns，Chrome 沙箱初始化退出 → 测试 helper spawn 加 `--no-sandbox --disable-dev-shm-usage`（5a60eb7，本机 16/16 复跑无副作用）；③ run 38245231254 **全绿 ✓ verify in 2m56s**；④ run 38245605480 失败——暴露 teardown 竞态 flaky：Chrome SIGTERM 退出后 profile 尾部写入使 rmdir 偶发 ENOTEMPTY（reference-suite 收集期）→ cleanupCdpChrome 改重试 5 次 + 最终静默放弃（48bb561，绝不 fail 测试）；⑤ 终态 run [38245857734](https://github.com/JustinIan-AI/Jev-E2E-WebTest/actions/runs/38245857734) **全绿 ✓ verify in 1m0s**，CI 日志确证：Full test suite **43 files / 490 tests passed**、Replay verify+offline 专项 13 passed、stability gate 11 passed、offline package 契约 5 passed、typecheck/build/CLI 冒烟全过。本机等价复跑：vitest 490/490、tsc、build、init+validate exit 0；`pack:offline` 真实执行——无引擎缓存时 exit 4 快速失败（DD-35），有缓存构建/版本错配拒绝路径由 offline-package 契约测试覆盖；六值退出码处理由 exit-codes/executor/cli 契约测试承担。
   - 验证：全量 490/490 通过（43 文件，新增 23 例），`tsc --noEmit` 0 错误，`npm run build` 通过。
 
+## Task 19: 衔接 ai-testgen —— Gherkin Feature 导入为 IDWTH Contract【✅ 已完成】
+- **Status**: `completed【✅】`（2026-10-16：typecheck 通过；全量 49 文件 568 用例全绿，新增 3 测试文件 63 用例）
+- **Priority**: high
+- **Depends On**: Task 18
+- **Description**:
+  - 将 `ai-testgen` v2.0.0（MIT）以 `--depth 1` 克隆至 `tools/ai-testgen/`（移除 .git、不带 node_modules），作为上下游外部工具调用：其产出的 Gherkin `.feature` 作为衔接接缝，IDWTH 侧零新增运行时 npm 依赖。
+  - 新增极简 Gherkin 解析器 [gherkin-parse.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/contract/gherkin-parse.ts)：支持 Feature/Background/Scenario/Scenario Outline（含 Example/Template/Scenarios 别名）、Given/When/Then（And/But/`*` 归一化）、标签、步骤数据表、Examples 展开、三引号/反引号文档串（dedent）、CRLF；错误带行号。
+  - 新增纯函数映射器 [feature-to-contract.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/contract/feature-to-contract.ts)：映射至封闭动作集（navigate/fill/select/scroll/wait/click/assert_only）与 7 个 DOM 断言原语；全部可映射 → ready（产物经 validateContract 九规则校验）；存在未映射步骤 → draft，`_draft.unmapped_steps` 按 `unmapped-precondition`/`unmapped-action`/`unrecognized-assertion` 分类，为后续 Skills 自动补全预留数据基础（不丢弃、不猜测）。
+  - 新增落盘编排 [init-from.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/src/runtime/contract/init-from.ts)；扩展 CLI 入口 `idwth init --from <feature> --base-url <url> --credentials <cred://ref> [--out dir] [--role role] [--id-prefix prefix]`，默认输出 `.idwth/contracts/`：ready 写 `<id>.contract.yaml`，draft 写 `<id>.draft.yaml`（含人工补全指引头注释）。
+  - 按用户决策删除 `tests/fixtures/idwth-hello-0.1.0.tgz`，不保留。
+- **Acceptance Criteria Addressed**: AC-01, AC-18
+- **Test Requirements**:
+  - `rule` TR-19.1: 标准 Gherkin 夹具可正确解析（含 URL 步骤、Outline、文档串 dedent、标签归属），语法错误带行号；证据为 [gherkin-parse.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/gherkin-parse.test.ts) 21 用例。
+  - `rule` TR-19.2: 七类动作与 DOM 断言映射正确，ready 全部通过 Contract 校验，未映射步骤降级 draft 并精确分类（支持中英文）；证据为 [feature-to-contract.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/feature-to-contract.test.ts) 28 用例。
+  - `rule` TR-19.3: `init --from` 端到端落盘 ready/draft 文件、ready 可被 validate、参数错误返回 CONFIG_ERROR(3)；证据为 [init-from.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/contract/init-from.test.ts) 14 用例。
+- **TDD 证据**:
+  - RED：先建 [sample.feature](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/fixtures/sample.feature) 夹具（ready/draft/Outline/多未映射）与 3 个测试文件，首轮 25 failed / 37 passed，错误实证三类根因。
+  - 修复：① `parseBlockHeader` 增加块头关键字白名单，含 `https:` 的步骤行不再被误判；② SELECT/SCROLL/WAIT 三正则补 `i` flag（大写主语 `I select/scroll/wait` 可匹配）；③ 文档串按非空行最小前导空格 dedent；④ 修正夹具标签归属断言并补 Examples 标签用例。
+  - GREEN：新增 63 用例全绿；`npm run typecheck` 与全量 `npm test`（49 文件 568 用例）通过，无回归。
+
 ## AC 覆盖矩阵
 
 | AC | 覆盖任务 |
