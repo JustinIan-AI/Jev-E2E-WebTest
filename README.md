@@ -85,6 +85,7 @@ node bin/idwth.js report <run_id> --open
 | 命令 | 说明 |
 | --- | --- |
 | `idwth init` | 生成 `.idwth/` 脚手架、示例 Contract 与环境探测框架 |
+| `idwth init --from <feature>` | 从 Gherkin `.feature` 导入并生成 Contract（见[下节](#与-ai-testgen-衔接)） |
 | `idwth validate <contract> [--json]` | Schema + 九条可执行性规则校验；不合法返回 3 |
 | `idwth run <contract> [options]` | 一次性执行契约，输出 verdict 与六值退出码 |
 | `idwth replay <trace> --verify\|--heal` | 回放历史轨迹（默认 verify，零模型） |
@@ -121,6 +122,112 @@ CI 中遵循 bash `-e` 语义：非零即失败，禁止 `|| true` 等吞码写�
 
 契约缺失 `base_url` / `goal` / `assertions` / `credentials_ref` 时一律拒绝，禁止猜测补全；凭据通过 `cred://` 引用，仅在 Runtime 内存解析。
 
+## 与 ai-testgen 衔接
+
+仓库内置上游用例生成工具 [ai-testgen](tools/ai-testgen/)（MIT，独立 Node 工程，不纳入 IDWTH 运行时依赖）。典型链路：
+
+```
+需求/接口文档 ──ai-testgen generate──► .feature（Gherkin）
+                                              │
+                              idwth init --from
+                                              ▼
+                     .contract.yaml（ready，可直接执行）
+                     .draft.yaml（draft，需人工补全）
+```
+
+Gherkin 是两者之间的接缝：IDWTH 自带零依赖的解析器，将步骤映射到封闭动作集（`navigate/fill/select/scroll/wait/click/assert_only`）与 7 个 DOM 断言原语，支持中英文。**全部步骤可映射 → ready；任一步骤无法映射 → draft**（绝不猜测丢弃）。
+
+### 准备 ai-testgen
+
+```bash
+cd tools/ai-testgen
+npm ci
+npm run build
+export OPENAI_API_KEY=sk-...        # 或 ANTHROPIC_API_KEY（见其 .env.example）
+```
+
+### 场景一：需求文档 → 用例 → 全量导入执行（全部 ready）
+
+```bash
+# 1. 由 PRD 生成 Gherkin（-f gherkin 是衔接 IDWTH 的关键）
+cd tools/ai-testgen
+node dist/cli.js generate docs/prd.md -f gherkin -o ../../generated
+#   产物：generated/prd.feature
+
+# 2. 回到主工程，导入为 IDWTH Contract
+cd ../..
+node bin/idwth.js init --from generated/prd.feature \
+  --base-url https://staging.example.com \
+  --credentials cred://staging-operator
+#   产物：.idwth/contracts/<id>.contract.yaml
+
+# 3. 校验并执行
+node bin/idwth.js validate .idwth/contracts/*.contract.yaml
+node bin/idwth.js run .idwth/contracts/<id>.contract.yaml
+```
+
+### 场景二：OpenAPI 规格生成 + 自定义输出目录
+
+```bash
+# from-spec 从 OpenAPI 规格直接派生场景
+cd tools/ai-testgen
+node dist/cli.js from-spec openapi.yaml -o ../../generated
+
+# 指定 --out 落到目标 contracts 目录，并附角色 / id 前缀
+cd ../..
+node bin/idwth.js init --from generated/openapi.feature \
+  --base-url https://staging.example.com \
+  --credentials cred://staging-operator \
+  --out contracts --role auditor --id-prefix acme
+```
+
+### 场景三：导入含未映射步骤 —— draft 人工补全
+
+当 Gherkin 出现封闭动作集之外的操作（如 `When I upload a profile picture`）或无法识别的断言，对应 Scenario **不会**生成 `.contract.yaml`，而是生成 `.draft.yaml`：
+
+```bash
+node bin/idwth.js init --from generated/prd.feature \
+  --base-url https://staging.example.com \
+  --credentials cred://staging-operator
+# stdout:
+#   已生成 Contract（ready）: .idwth/contracts/operator.logs.in.contract.yaml
+#   已生成草稿（1 个未映射步骤）: .idwth/contracts/operator.uploads.avatar.draft.yaml
+```
+
+草稿中 `_draft.unmapped_steps` 逐条给出原因分类：
+
+| reason | 含义 |
+| --- | --- |
+| `unmapped-precondition` | Given 前置条件无法映射 |
+| `unmapped-action` | When 动作不在封闭动作集 |
+| `unrecognized-assertion` | Then 断言无法识别为 7 个 DOM 原语 |
+
+补全流程：打开 `.draft.yaml` → 手工补全 `steps` / `assertions` → 删除文件头注释与 `_draft` 段 → 重命名为 `.contract.yaml` → `idwth validate` 通过后方可执行。未映射步骤的分类数据为后续以 Skills 自动补全、人只审核报告预留。
+
+### 场景四：Scenario Outline 自动展开
+
+含 `Examples` 参数表的 Scenario Outline 会按数据行展开为独立 Contract（id 追加 `.row1` / `.row2` …），占位符 `<name>` 被逐行替换：
+
+```bash
+node bin/idwth.js init --from generated/search.feature \
+  --base-url https://staging.example.com \
+  --credentials cred://staging-operator
+#   产物：search.products.row1.contract.yaml、search.products.row2.contract.yaml
+```
+
+### `init --from` 参数
+
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `--from <feature>` | 是 | Gherkin `.feature` 文件路径 |
+| `--base-url <url>` | 是 | 被测站点根地址（须为合法 http(s) URL） |
+| `--credentials <ref>` | 是 | 凭据引用，必须为 `cred://` 前缀 |
+| `--out <dir>` | 否 | 输出目录，默认 `.idwth/contracts` |
+| `--role <role>` | 否 | 身份角色，写入 contract `identity.role` |
+| `--id-prefix <prefix>` | 否 | 测试 id 前缀 |
+
+参数缺失或非法返回 `CONFIG_ERROR(3)`；`.feature` 不存在返回 `RUNTIME_ERROR(4)`，语法错误带行号返回 `CONFIG_ERROR(3)`。
+
 ## 回放与离线
 
 ```bash
@@ -147,6 +254,8 @@ npm run pack:offline -- --version <engine_provider_version>
 
 ```
 ├── bin/idwth.js              # CLI 入口（加载 dist/cli/index.js）
+├── tools/
+│   └── ai-testgen/           # 上游用例生成工具（MIT，独立工程，产出 .feature）
 ├── scripts/                  # 离线包构建等脚本
 ├── src/
 │   ├── cli/                  # 命令路由、参数解析、退出码、run handler、报告模板
@@ -174,7 +283,7 @@ npm run pack:offline -- --version <engine_provider_version>
 | `npm run build` | 编译到 `dist/` |
 | `npm run pack:offline` | 构建离线发布包 |
 
-所有自动化测试统一位于 `tests/`。当前共 **490 个测试（43 个测试文件）全部通过**。开发遵循 TDD：RED（测试先行失败）→ GREEN（最小实现）→ 全量验证。
+所有自动化测试统一位于 `tests/`。当前共 **568 个测试（49 个测试文件）全部通过**。开发遵循 TDD：RED（测试先行失败）→ GREEN（最小实现）→ 全量验证。
 
 ## CI
 
