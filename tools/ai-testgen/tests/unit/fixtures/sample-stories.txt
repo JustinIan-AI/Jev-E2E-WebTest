@@ -1,0 +1,21 @@
+As a registered user, I want to login to my account, so that I can access my dashboard.
+
+As a new user, I want to create an account, so that I can use the platform.
+
+Scenario: Successful Login
+Given the user has a valid account
+When the user enters correct email and password
+Then the user is redirected to the dashboard
+And a session token is created
+
+Scenario: Failed Login
+Given the user has a valid account
+When the user enters wrong password
+Then an error message is displayed
+And the user remains on the login page
+
+Scenario: Account Registration
+Given the user is on the registration page
+When the user fills in all required fields
+Then a new account is created
+And a confirmation email is sent
