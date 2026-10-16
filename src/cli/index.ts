@@ -28,6 +28,8 @@ import { defaultRunHandler } from './run-handler.js';
 import { RUNS_DIR } from './paths.js';
 import { ContractConfigError, loadContractFile } from '../runtime/contract/loader.js';
 import { validateContract } from '../runtime/contract/validate.js';
+import { GherkinParseError } from '../runtime/contract/gherkin-parse.js';
+import { initFromFeature } from '../runtime/contract/init-from.js';
 import {
   currentJudgeImplHash,
   recomputeJudge,
@@ -78,7 +80,7 @@ async function runCommand(
   try {
     switch (command) {
       case 'init':
-        return await cmdInit(cwd);
+        return await cmdInit(rest, cwd);
       case 'validate':
         return await cmdValidate(rest, cwd);
       case 'run':
@@ -109,6 +111,7 @@ function mapError(error: unknown): ExitCode {
   if (
     error instanceof UsageError ||
     error instanceof ContractConfigError ||
+    error instanceof GherkinParseError ||
     error instanceof ReportNotFoundError
   ) {
     process.stderr.write(`idwth: ${error.message}\n`);
@@ -160,10 +163,96 @@ assertions:
       within_run: true
 `;
 
-async function cmdInit(cwd: string): Promise<ExitCode> {
+// ---------------------------------------------------------------------------
+// init 参数解析
+// ---------------------------------------------------------------------------
+
+interface InitArgs {
+  from?: string;
+  baseUrl?: string;
+  credentials?: string;
+  role?: string;
+  out?: string;
+}
+
+const INIT_FLAGS = new Set(['--from', '--base-url', '--credentials', '--role', '--out']);
+
+function parseInitArgs(rest: readonly string[]): InitArgs {
+  const args: InitArgs = {};
+  for (let i = 0; i < rest.length; i++) {
+    const token = rest[i]!;
+    if (!token.startsWith('--')) {
+      throw new UsageError(`用法：idwth init [--from <feature>] [--base-url <url>] [--credentials <cred://...>] [--role <role>] [--out <dir>]`);
+    }
+    // 支持 --flag=value 形式。
+    const eqIndex = token.indexOf('=');
+    const flag = eqIndex === -1 ? token : token.slice(0, eqIndex);
+    const inlineValue = eqIndex === -1 ? undefined : token.slice(eqIndex + 1);
+    if (!INIT_FLAGS.has(flag)) {
+      throw new UsageError(`未知选项：${flag}`);
+    }
+    const value = inlineValue ?? rest[++i];
+    if (value === undefined || value.startsWith('--')) {
+      throw new UsageError(`选项 ${flag} 需要一个值`);
+    }
+    const key = flag.slice(2) as 'from' | 'base-url' | 'credentials' | 'role' | 'out';
+    if (key === 'from') args.from = value;
+    else if (key === 'base-url') args.baseUrl = value;
+    else if (key === 'credentials') args.credentials = value;
+    else if (key === 'role') args.role = value;
+    else args.out = value;
+  }
+  return args;
+}
+
+async function cmdInit(rest: readonly string[], cwd: string): Promise<ExitCode> {
+  const args = parseInitArgs(rest);
+
   const root = path.join(cwd, '.idwth');
   await mkdir(path.join(root, 'contracts'), { recursive: true });
   await mkdir(path.join(root, 'runs'), { recursive: true });
+
+  // --from：从 ai-testgen 产出的 Gherkin feature 生成 Contract（不再落示例文件）。
+  if (args.from !== undefined) {
+    if (args.baseUrl === undefined) {
+      throw new UsageError('idwth init --from 需要 --base-url <url>');
+    }
+    if (args.credentials === undefined) {
+      throw new UsageError('idwth init --from 需要 --credentials <cred://...>');
+    }
+    try {
+      // 提前做一次 URI 合法性校验，错误以配置错误（exit 3）呈现。
+      new URL(args.baseUrl);
+    } catch {
+      throw new UsageError(`--base-url 不是合法 URL：${args.baseUrl}`);
+    }
+    if (!args.credentials.startsWith('cred://')) {
+      throw new UsageError(`--credentials 必须形如 cred://<name>，收到：${args.credentials}`);
+    }
+
+    const outDir = path.resolve(cwd, args.out ?? path.join(root, 'contracts'));
+    const result = await initFromFeature({
+      featurePath: path.resolve(cwd, args.from),
+      outDir,
+      baseUrl: args.baseUrl,
+      credentialsRef: args.credentials,
+      ...(args.role !== undefined ? { role: args.role } : {}),
+    });
+
+    for (const file of result.readyFiles) {
+      process.stdout.write(`idwth: 已生成 Contract：${path.join(outDir, file)}\n`);
+    }
+    for (const file of result.draftFiles) {
+      const count = result.unmappedCounts[file] ?? 0;
+      process.stdout.write(
+        `idwth: 已生成草稿（${count} 个未映射步骤，需人工补全）：${path.join(outDir, file)}\n`,
+      );
+    }
+    if (result.readyFiles.length === 0 && result.draftFiles.length === 0) {
+      process.stdout.write('idwth: Feature 中没有可生成的 Scenario\n');
+    }
+    return EXIT_CODES.PASS;
+  }
 
   const examplePath = path.join(root, 'contracts', 'example.contract.yaml');
   await writeFile(examplePath, EXAMPLE_CONTRACT_YAML, 'utf8');
@@ -370,6 +459,10 @@ Usage: idwth <command> [options]
 
 Commands:
   init        Scaffold .idwth/ + example contract + environment probe
+              init --from <feature> --base-url <url> --credentials <cred://...>
+                  [--role <role>] [--out <dir>]
+                  Generate contracts from an ai-testgen Gherkin .feature file;
+                  unmapped steps are written as *.draft.yaml for human completion
   validate    Validate a contract (schema + 9 executability rules)
   run         Execute a contract (one-shot)
   replay      Replay a trace (--verify default | --heal explicit)
