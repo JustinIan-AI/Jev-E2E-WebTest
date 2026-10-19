@@ -13,6 +13,7 @@ import {
   CancelledError,
   UsageError,
   isCommandName,
+  parseCompleteArgs,
   parseDoctorArgs,
   parseReplayArgs,
   parseReportArgs,
@@ -31,6 +32,8 @@ import { ContractConfigError, loadContractFile } from '../runtime/contract/loade
 import { validateContract } from '../runtime/contract/validate.js';
 import { GherkinParseError } from '../runtime/contract/gherkin-parse.js';
 import { initFromFeature } from '../runtime/contract/init-from.js';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { completeDraft } from '../runtime/contract/complete.js';
 import {
   currentJudgeImplHash,
   recomputeJudge,
@@ -94,6 +97,8 @@ async function runCommand(
         return await cmdDoctor(rest, cwd, deps);
       case 'judge':
         return await cmdJudge(rest, cwd);
+      case 'complete':
+        return await cmdComplete(rest, cwd);
       default:
         process.stderr.write(`idwth: 未知命令 '${command}'\n`);
         return EXIT_CODES.CONFIG_ERROR;
@@ -454,6 +459,141 @@ async function cmdJudge(rest: readonly string[], cwd: string): Promise<ExitCode>
   return EXIT_CODES.BLOCKED;
 }
 
+
+// ---------------------------------------------------------------------------
+// complete
+// ---------------------------------------------------------------------------
+
+async function cmdComplete(rest: readonly string[], cwd: string): Promise<ExitCode> {
+  const args = parseCompleteArgs(rest);
+  const draftFullPath = path.resolve(cwd, args.draftPath);
+
+  let rawDraft: string;
+  try {
+    rawDraft = await readFile(draftFullPath, "utf8");
+  } catch {
+    throw new ContractConfigError(`Draft 文件不存在或不可读：${draftFullPath}`, draftFullPath);
+  }
+
+  let draftDoc: Record<string, unknown>;
+  try {
+    draftDoc = parseYaml(rawDraft) as Record<string, unknown>;
+  } catch (err) {
+    throw new ContractConfigError(`Draft 文件 YAML 格式错误：${(err as Error).message}`, draftFullPath);
+  }
+
+  if (!draftDoc || typeof draftDoc !== "object" || !draftDoc._draft) {
+    throw new ContractConfigError("Draft 缺少 _draft 段，不是合法的 draft 文件", draftFullPath);
+  }
+
+  const draftMeta = draftDoc._draft as Record<string, unknown>;
+  const sourceFeature = draftMeta.source_feature;
+  if (!sourceFeature || typeof sourceFeature !== "string") {
+    throw new ContractConfigError("Draft 缺少 _draft.source_feature", draftFullPath);
+  }
+
+  let featureFullPath = path.isAbsolute(sourceFeature)
+    ? sourceFeature
+    : path.resolve(cwd, sourceFeature);
+
+  let featureRaw: string;
+  try {
+    featureRaw = await readFile(featureFullPath, "utf8");
+  } catch {
+    // 尝试相对 draft 所在目录
+    const relativeToDraft = path.resolve(path.dirname(draftFullPath), sourceFeature);
+    try {
+      featureRaw = await readFile(relativeToDraft, "utf8");
+      featureFullPath = relativeToDraft;
+    } catch {
+      throw new Error(`source_feature 文件不存在：${sourceFeature}`);
+    }
+  }
+
+  const result = completeDraft({ draft: draftDoc, featureRaw });
+
+  if (args.apply) {
+    if (result.needsHuman > 0 || !result.completedContract) {
+      if (args.json) {
+        process.stdout.write(
+          JSON.stringify({ success: false, reason: "unresolved_steps", ...result }, null, 2) + "\n",
+        );
+      } else {
+        process.stderr.write(
+          `idwth complete: 存在 ${result.needsHuman} 个无法自动落定的步骤（需人工确认或无法识别），无法应用 --apply\n`,
+        );
+        for (const c of result.candidates) {
+          if (c.confidence !== "high") {
+            process.stderr.write(`  - [${c.confidence}] ${c.keyword} ${c.text} (${c.matched_rule})\n`);
+          }
+        }
+      }
+      return EXIT_CODES.CONFIG_ERROR;
+    }
+
+    const validation = validateContract(result.completedContract);
+    if (!validation.valid) {
+      const first = validation.violations[0];
+      throw new Error(
+        `内部错误：补全产物未通过 Contract 校验 ${first?.rule ?? ""} ${first?.message ?? ""}`.trim(),
+      );
+    }
+
+    const outDir = path.resolve(cwd, args.out ?? path.dirname(draftFullPath));
+    await mkdir(outDir, { recursive: true });
+    const outFileName = `${result.completedContract.test.id}.contract.yaml`;
+    const outFilePath = path.join(outDir, outFileName);
+
+    await writeFile(
+      outFilePath,
+      stringifyYaml(result.completedContract, { lineWidth: 100 }),
+      "utf8",
+    );
+
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            applied: true,
+            outFile: outFilePath,
+            ...result,
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+    } else {
+      process.stdout.write(`idwth: 已生成 Contract：${outFilePath}\n`);
+    }
+    return EXIT_CODES.PASS;
+  }
+
+  // 默认模式（无 --apply）
+  if (args.json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } else {
+    process.stdout.write(`idwth complete: 场景 "${result.testId}" 补全建议（${result.matchBasis}）：\n`);
+    result.candidates.forEach((c, idx) => {
+      process.stdout.write(`  ${idx + 1}. [${c.confidence}] (规则: ${c.matched_rule}) ${c.keyword} ${c.text}\n`);
+      if (c.step) {
+        process.stdout.write(`     -> 动作: ${c.step.action} (target: ${c.step.target ?? "-"})` + (c.step.risk ? `, risk: ${c.step.risk}\n` : "\n"));
+      }
+      if (c.assertion) {
+        process.stdout.write(`     -> 断言: kind=${c.assertion.kind} (target: ${c.assertion.target ?? "-"})` + "\n");
+      }
+    });
+    process.stdout.write(`统计: 高置信 ${result.resolvedHigh} 条，需人工 ${result.needsHuman} 条。\n`);
+    if (result.needsHuman === 0) {
+      process.stdout.write("全部步骤均为高置信候选，可使用 `idwth complete <draft> --apply` 自动落定为 Contract。\n");
+    } else {
+      process.stdout.write("存在需人工确认的步骤，请补充对应目标或修改 feature 后重试。\n");
+    }
+  }
+
+  return EXIT_CODES.PASS;
+}
+
 const USAGE = `idwth - Intent-Driven Web Test Harness v${VERSION}
 
 Usage: idwth <command> [options]
@@ -470,6 +610,8 @@ Commands:
   report      Render/export a static self-contained report
   doctor      Environment diagnostics (port/process self-heal)
   judge       judge recompute <run_id>  — offline verdict recomputation
+  complete    Complete unmapped draft steps using deterministic Skills matching
+              idwth complete <draft.yaml> [--apply] [--json] [--out <dir>]
 
 Exit codes: 0 PASS · 1 FAIL · 2 BLOCKED · 3 CONFIG_ERROR · 4 RUNTIME_ERROR · 130 CANCELLED
 
