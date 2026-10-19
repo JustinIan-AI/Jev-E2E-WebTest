@@ -28,6 +28,7 @@ export const COMMANDS = [
   'report',
   'doctor',
   'judge',
+  'complete',
 ] as const;
 
 export type CommandName = (typeof COMMANDS)[number];
@@ -247,4 +248,34 @@ export function parseDoctorArgs(argv: readonly string[]): void {
   if (parsed.positionals.length > 0) {
     throw new UsageError(`doctor 不接受位置参数：${parsed.positionals.join(' ')}`);
   }
+}
+
+export interface CompleteArgs {
+  readonly draftPath: string;
+  readonly apply?: boolean;
+  readonly json?: boolean;
+  readonly out?: string;
+}
+
+const COMPLETE_SPECS: readonly OptionSpec[] = [
+  { name: "apply" },
+  { name: "json" },
+  { name: "out", takesValue: true },
+];
+
+export function parseCompleteArgs(argv: readonly string[]): CompleteArgs {
+  const parsed = parseCommand(argv, COMPLETE_SPECS);
+  if (parsed.positionals.length === 0) {
+    throw new UsageError("用法：idwth complete <draft.yaml> [--apply] [--json] [--out <dir>]");
+  }
+  if (parsed.positionals.length > 1) {
+    throw new UsageError(`idwth complete 仅接收一个 draft 文件路径，收到 ${parsed.positionals.length} 个`);
+  }
+  const outVal = parsed.values["out"];
+  return {
+    draftPath: parsed.positionals[0]!,
+    apply: flagValue(parsed.values, "apply"),
+    json: flagValue(parsed.values, "json"),
+    ...(typeof outVal === "string" ? { out: outVal } : {}),
+  };
 }
