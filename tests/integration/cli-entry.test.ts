@@ -7,18 +7,30 @@
  * 路径，与模块自身 URL 不相等。两者叠加导致经 shim 执行任何命令都零输出、
  * exit 0。
  *
- * 本测试不经过 tsx/源码入口，直接执行构建产物上的真实 shim，因此运行前
- * 必须先 `npm run build`（由全量 test 前的 build 门禁保证）。
+ * 本测试不经过 tsx/源码入口，直接执行构建产物上的真实 shim，因此依赖
+ * dist/ 已构建。为避免依赖调用方（CI / 开发机）先跑 build，beforeAll 发现
+ * 产物缺失时先就地构建一次。
  */
 import { execFile } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 const execFileP = promisify(execFile);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SHIM = path.join(REPO_ROOT, 'bin/idwth.js');
+const BUILT_ENTRY = path.join(REPO_ROOT, 'dist/cli/index.js');
+
+beforeAll(async () => {
+  try {
+    await access(BUILT_ENTRY);
+  } catch {
+    // 产物缺失（如 CI 在 build 前先跑 test、或 fresh checkout 直跑 npm test）。
+    await execFileP('npm', ['run', 'build'], { cwd: REPO_ROOT });
+  }
+});
 
 interface RunResult {
   code: number;
