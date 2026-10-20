@@ -8,6 +8,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   CancelledError,
   UsageError,
@@ -476,7 +477,9 @@ All commands run once and exit; there is no daemon or server mode.
 `;
 
 // Only execute when invoked directly (not when imported by tests).
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 用 pathToFileURL 归一化 argv[1]：Windows 反斜杠、符号链接路径与裸
+// `file://${argv[1]}` 拼接均会导致守卫在经 bin shim 直接调用时不成立（issue #3）。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main()
     .then((code) => {
       process.exitCode = code;
