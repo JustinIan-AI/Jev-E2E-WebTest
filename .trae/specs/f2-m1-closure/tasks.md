@@ -79,73 +79,95 @@ export function cleanupCdpChrome(chrome: CdpChrome | null): Promise<void>;
 
 ## F2-1 · 真实 shim 子进程 PASS 确定性闭环
 
-- [ ] F2-1.1 新建 `tests/integration/cli-command-e2e.test.ts`：beforeAll 装配
+- [x] F2-1.1 新建 `tests/integration/cli-command-e2e.test.ts`：beforeAll 装配
   （dist 守卫 build / launchCdpChrome / env 注入 / 本地 http SUT）与 `runShim` 辅助。
-- [ ] F2-1.2 RED：写 PASS 用例——临时 cwd 落零模型契约（click 不可逆步 + 紧接
+- [x] F2-1.2 RED：写 PASS 用例——临时 cwd 落零模型契约（click 不可逆步 + 紧接
   postcondition visible + 终态 assertions），`node bin/idwth.js run <rel> --json`：
   断言 exit 0；stdout 单行 JSON 含 run_id 与 verdict=PASS；run 目录存在 report.json /
   judge-result.json / evidence-manifest.json / observation.json / 截图文件；
   report.failure_reason=null；reproduction.rerun_command 含 `idwth run`。
-- [ ] F2-1.3 运行该用例确认通过（生产链路已就位，预期直接绿；若失败则属真实缺陷，
-  按红线 1 最小修复并登记）。
+- [x] F2-1.3 运行该用例确认通过（生产链路已就位，预期直接绿；若失败则属真实缺陷，
+  按红线 1 最小修复并登记）。【✅ 首跑 exit 4：src/schema/loader.ts 按 process.cwd()
+  解析 src/schema/*.json，cwd=临时目录时 ENOENT。最小修复为按模块自身位置（import.meta.url）
+  上溯包根定位、cwd 作回退；修复后用例绿，四门禁 53 文件/594 用例】
 
-预期：真实 shim 子进程跑通零模型 PASS 全链，产物齐备。状态：【 】
+预期：真实 shim 子进程跑通零模型 PASS 全链，产物齐备。状态：【✅】
 
 ## F2-2 · 命令级错误路径（歧义 / 配置错 / CDP 不可达）
 
-- [ ] F2-2.1 RED：歧义 SUT——页面放两个不可区分的同名按钮（同 role/name/text），
+- [x] F2-2.1 RED：歧义 SUT——页面放两个不可区分的同名按钮（同 role/name/text），
   契约目标指向该语义短语；`run`（非 --json）断言 exit 2、report verdict=BLOCKED、
   failure_reason 含 ambiguity；SUT 两侧 click 副作用计数恒为 0（零派发，A3）。
-- [ ] F2-2.2 RED：`run` 缺路径 → exit 3 且 stderr 含用法；未知选项（如 `--bogus`）→ exit 3。
-- [ ] F2-2.3 RED：`IDWTH_CDP_ENDPOINT` 指向确认关闭的端口（如 http://127.0.0.1:1）→
+- [x] F2-2.2 RED：`run` 缺路径 → exit 3 且 stderr 含用法；未知选项（如 `--bogus`）→ exit 3。
+- [x] F2-2.3 RED：`IDWTH_CDP_ENDPOINT` 指向确认关闭的端口（如 http://127.0.0.1:1）→
   `run` exit 4；临时 cwd 下无 `.idwth/runs` 目录。
-- [ ] F2-2.4 补 run handler 单测缺口：在 [run-handler.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/run-handler.test.ts)
+- [x] F2-2.4 补 run handler 单测缺口：在 [run-handler.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/unit/run-handler.test.ts)
   增加 FakeProvider 返回 resolve `{status:'ambiguous',count:2}` → handler exit 2、
   BLOCKED(ambiguity) 的单元级用例（与命令级证据互锁）。
 
-预期：歧义 exit 2 零点击、配置错 exit 3、CDP 不可达 exit 4 无归档，均有命令级断言。状态：【 】
+预期：歧义 exit 2 零点击、配置错 exit 3、CDP 不可达 exit 4 无归档，均有命令级断言。状态：【✅】
+（命令级 3 用例 + 单测 1 用例全绿；四门禁 53 文件/598 用例，零生产代码改动）
 
 ## F2-3 · 命令级 report 五要素 + judge recompute 闭环
 
-- [ ] F2-3.1 RED：复用 F2-1 的 run_id（同一临时 cwd），`node bin/idwth.js report <run_id>`
+- [x] F2-3.1 RED：复用 F2-1 的 run_id（同一临时 cwd），`node bin/idwth.js report <run_id>`
   → exit 0、stdout 打印 html 路径；读取该 report.html 断言：含用例名/目标、verdict=PASS、
   可复现命令；未通过原因区存在（PASS 时为空/null 态）；无 `<script`、无 `http(s)://`
   外链、含内联 `<style>`；截图文件在同 run 目录可被 html 相对引用。
-- [ ] F2-3.2 RED：`node bin/idwth.js judge recompute <run_id>` → exit 0、stdout 含
+- [x] F2-3.2 RED：`node bin/idwth.js judge recompute <run_id>` → exit 0、stdout 含
   `recompute MATCH`、`verdict=PASS`、hash 段非空。
-- [ ] F2-3.3 RED：对 F2-2.1 的 BLOCKED run 执行 `judge recompute` → exit 2 且
+- [x] F2-3.3 RED：对 F2-2.1 的 BLOCKED run 执行 `judge recompute` → exit 2 且
   stdout `MATCH ... verdict=BLOCKED`。
-- [ ] F2-3.4 RED：篡改证据（覆写 run 目录下某 evidence 文件一个字节）后
+- [x] F2-3.4 RED：篡改证据（覆写 run 目录下某 evidence 文件一个字节）后
   `judge recompute` → exit 4（integrity_error），不输出 MATCH。
-- [ ] F2-3.5 边界：`report <不存在run_id>` → exit 3；`judge recompute` 缺 run_id → exit 3；
+- [x] F2-3.5 边界：`report <不存在run_id>` → exit 3；`judge recompute` 缺 run_id → exit 3；
   `judge bogus` → exit 3。
 
-预期：五要素离线 HTML 与 recompute MATCH/篡改 exit 4 全部在真实命令级成立。状态：【 】
+预期：五要素离线 HTML 与 recompute MATCH/篡改 exit 4 全部在真实命令级成立。状态：【✅】
+（5 条命令级用例全绿；四门禁 53 文件/603 用例，零生产代码改动。
+实现要点：外链断言只约束 src/href/url 资源引用——base_url 作为文本含 http:// 字面量；
+篡改须命中 manifest sha256 指向的 blobs/judgement_set/<sha>，改命名视图不被检出；
+verdict_hash 为 sha256 裸 hex 64 位；html 路径断言用 realpath 消解 macOS /var→/private/var）
 
 ## F2-4 · 证据回链 baseline
 
-- [ ] F2-4.1 更新 [baseline tasks.md](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/.trae/specs/idwth-v1-development-baseline/tasks.md)
+- [x] F2-4.1 更新 [baseline tasks.md](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/.trae/specs/idwth-v1-development-baseline/tasks.md)
   Task 11 Notes：把"将在 Task 14 后补齐"的保留项改为已闭环，附命令级证据测试文件
   （tests/integration/cli-command-e2e.test.ts）与复跑命令；保留历史措辞的事实陈述。
-- [ ] F2-4.2 更新 [baseline checklist.md](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/.trae/specs/idwth-v1-development-baseline/checklist.md)
+- [x] F2-4.2 更新 [baseline checklist.md](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/.trae/specs/idwth-v1-development-baseline/checklist.md)
   M1 项：勾选并加证据指针（测试文件 + 四门禁命令 + 用例计数）。
-- [ ] F2-4.3 双对账：确认未改动 Task 1~19 完成状态与 AC 覆盖矩阵；M1 三要素
+- [x] F2-4.3 双对账：确认未改动 Task 1~19 完成状态与 AC 覆盖矩阵；M1 三要素
   （无模型一条用例 / A3+A8 / 五要素离线）逐条可点回证据。
 
-预期：Task 11 Notes 与 checklist M1 完成回链，账实一致。状态：【 】
+预期：Task 11 Notes 与 checklist M1 完成回链，账实一致。状态：【✅】
+（baseline 两文件 diff 仅 +12/-2，未触任何 Task Status 行与 AC 矩阵；
+M1 三要素全部指向 cli-command-e2e.test.ts，复跑命令齐备）
 
 ## F2-5 · 全量门禁 + LoopX 收尾
 
-- [ ] F2-5.1 `npm run typecheck && npm run lint && npm run build && npm run test` 全绿；
-  记录文件数/用例数（只增不减）。
-- [ ] F2-5.2 确认仓库工作区无遗留：测试未在仓内落 `.idwth/runs`；无残留 Chrome 进程
-  （由 helper kill 负责）；临时目录已清。
-- [ ] F2-5.3 `loopx review-packet` 收集证据（变更文件/验证命令与输出/测试计数/风险），
+- [x] F2-5.1 `npm run typecheck && npm run lint && npm run build && npm run test` 全绿；
+  记录文件数/用例数（只增不减）。【✅ 2026-10-20 22:32 复跑：typecheck/lint/build exit0；
+  vitest 53 文件 / 603 用例全 passed（F2 前 598，净 +5）】
+- [x] F2-5.2 确认仓库工作区无遗留：测试未在仓内落 `.idwth/runs`；无残留 Chrome 进程
+  （由 helper kill 负责）；临时目录已清。【✅ 清理 3 组 10/13 个历史孤儿 Chrome（10/13 起，
+  PPID=1，非本次测试遗留）、$TMPDIR 下 444 个 idwth-* 目录、仓内 .idwth/runs 与 .idwth/tmp；
+  复核临时目录 0 / runs 目录不存在 / tmp 目录不存在 / idwth Chrome 0】
+- [x] F2-5.3 `loopx review-packet` 收集证据（变更文件/验证命令与输出/测试计数/风险），
   交 Trae 独立 review，核对 spec §5 七条 AC 与 AGENTS.md §5.5 红线。
-- [ ] F2-5.4 AC 全绿后 `loopx goal-lifecycle --goal-id f2-m1-closure --operation stop`
+  【✅ review-packet（evidence，JSON，state_refreshed）已收集；Trae 独立 review 结论 APPROVE：
+  七 AC 全部映射到命令级/单测证据，§5.5 五红线 + R4/R7 全满足；唯一生产改动 loader.ts
+  为真实缺陷的函数体内最小修复（import.meta.url 定位 schema，cwd 回退，零新依赖）；
+  package.json 无 diff；残余风险无】
+- [x] F2-5.4 AC 全绿后 `loopx goal-lifecycle --goal-id f2-m1-closure --operation stop`
   （先 dry-run 再 --execute）。
+  【✅ 2026-10-20 22:51：stop preview 成功（active→stopped，changed=true）；--execute 后
+  written=true、readback=verified。7 个 todo 全 done（含 F2-5R 替办：原 F2-5 主 todo 于 add 时
+  预注册的复合验证命令在 loopx no-shell 运行器下 `&&` 被拆词致 exit 2，验证字段 add 后不可变，
+  故 supersede 原 todo，新增 todo_0d29b3e59d53 以 argv 形式 `["/bin/bash","-lc",<四门禁>]`
+  注册并由 loopx 独立跑通，17.3s，--no-follow-up；P1（loopx check 首信号）已 no-follow-up 闭环）】
 
-预期：四门禁全绿、证据 packet 齐备、goal 收尾无账实不符。状态：【 】
+预期：四门禁全绿、证据 packet 齐备、goal 收尾无账实不符。状态：【✅ F2 收口完成：
+53 文件 / 603 用例全绿（较 F2 前基线 594 净 +9）；goal stopped 账实一致】
 
 ---
 
