@@ -64,7 +64,7 @@ export interface MappedContract {
 }
 
 // --- 英文 / 中文引号统一取值（解析器只识别英文关键字，步骤文本可中文） ---
-const QUOTED_PATTERN = /[“”‘’]([^“”‘’]+)[“”‘’]/;
+const QUOTED_PATTERN = /[“"‘']([^”"‘']+)[”"‘']/;
 
 /** 提取步骤文本中首个引号片段作为值；无引号返回 null。 */
 function extractQuoted(text: string): string | null {
@@ -97,7 +97,7 @@ const NAVIGATE_PATTERN = /^(?:i\s+)?(?:navigate(?:\s+to)?|go(?:\s+to)?|open)\b|^
 const SCROLL_PATTERN = /^(?:i\s+)?scroll\b|^滚动/i;
 const WAIT_PATTERN = /^(?:i\s+)?wait\b|^等待/i;
 
-const URL_PATTERN = /https?:\/\/[^\s“”]+/;
+const URL_PATTERN = /https?:\/\/[^\s"”]+/;
 
 /**
  * 把单个步骤映射为 Contract 步骤；无法安全映射返回 null。
