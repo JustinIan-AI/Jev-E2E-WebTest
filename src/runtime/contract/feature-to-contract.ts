@@ -73,7 +73,7 @@ function extractQuoted(text: string): string | null {
 }
 
 /** 目标文本转 R7 合法的语义目标：剥离选择器特征（引号包裹的局部不算）。 */
-function sanitizeTarget(text: string): string {
+export function sanitizeTarget(text: string): string {
   return text.replace(/[#/]|\/\/|>>|\(\)/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
@@ -81,7 +81,7 @@ function sanitizeTarget(text: string): string {
 // 步骤映射
 // ---------------------------------------------------------------------------
 
-interface StepMapping {
+export interface StepMapping {
   step: ContractStep;
   /** 若为 Then 断言步骤，同时产出对应的顶层 dom 断言。 */
   assertion?: Record<string, unknown>;
@@ -102,7 +102,7 @@ const URL_PATTERN = /https?:\/\/[^\s"”]+/;
 /**
  * 把单个步骤映射为 Contract 步骤；无法安全映射返回 null。
  */
-function mapStep(raw: ParsedStep): StepMapping | null {
+export function mapStep(raw: ParsedStep): StepMapping | null {
   const text = raw.text.trim();
 
   // --- navigate ---
@@ -190,7 +190,7 @@ const SHOULD_NOT_SEE_PATTERN =
 const COUNT_PATTERN = /(\d+)\s*(?:times?|个|条)?/;
 
 /** 把 Then 步骤映射为 (assert_only 步骤, dom 断言)；无法映射返回 null。 */
-function mapThenStep(raw: ParsedStep): StepMapping | null {
+export function mapThenStep(raw: ParsedStep): StepMapping | null {
   const text = raw.text.trim();
 
   // should not see ...

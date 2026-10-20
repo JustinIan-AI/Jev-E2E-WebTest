@@ -17,3 +17,7 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+
+# LoopX / Codex local runtime state
+.codex/
+.loopx/

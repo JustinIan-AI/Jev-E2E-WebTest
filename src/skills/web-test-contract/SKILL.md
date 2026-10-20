@@ -51,3 +51,9 @@ Authoring 阶段唯一的知识型 Skill。当用户提供 PRD、接口文档、
 - 禁止猜测补全缺失字段。
 - 禁止输出任何形式的定位选择器（CSS / XPath / JS / 坐标）。
 - 禁止在 Contract 中写入明文凭据。
+
+## ⑦ Draft 自动补全能力（Skills 补全）
+
+- **确定性 Authoring 能力**：`idwth complete` 发生在 Authoring 阶段，由确定性扩展映射表纯函数驱动，**零网络调用、零模型派发**。
+- **Runtime 模型约束不变**：补全能力完全独立于测试执行回路，Runtime 路径（run/replay）模型调用为 0 的硬约束保持不变。
+- **守恒与安全**：未映射步骤与候选 1:1 数量守恒，逐条保留原文；仅全部高置信且通过九规则校验时才允许产出 ready Contract。
