@@ -44,6 +44,8 @@ class FakeProvider implements EngineProvider, FreshnessCapable {
   readonly navigatedUrls: string[] = [];
   /** resolve 可命中子串集（空集 = 全部 miss）。 */
   resolvable: string[] = ['创建'];
+  /** resolve 返回 ambiguous 的子串集（优先于 resolvable，模拟多候选）。 */
+  ambiguous: string[] = [];
   /** observe() 返回的最终页面元素（name/text 片段）。 */
   finalElements: Array<{ name: string; text: string }> = [];
   screenshotThrows = false;
@@ -55,6 +57,10 @@ class FakeProvider implements EngineProvider, FreshnessCapable {
 
   async resolve(target: SemanticTarget): Promise<ResolveResult> {
     const needle = target.text ?? target.name ?? '';
+    const ambiguousHit = this.ambiguous.some(
+      (r) => r.includes(needle) || needle.includes(r),
+    );
+    if (ambiguousHit) return { status: 'ambiguous', count: 2 };
     const hit = this.resolvable.some((r) => r.includes(needle) || needle.includes(r));
     if (!hit) return { status: 'miss' };
     return { status: 'resolved', mode: 'L1', elementId: 'el-1', strategy: 'text' };
@@ -298,6 +304,42 @@ describe('default run handler 装配闭环', () => {
     expect(judgeFile.assertions.dom).toHaveLength(0); // 未求值 = 空断言集，绝不伪造 FAIL
 
     // blocked run 的 judge 产物同样可离线重算
+    const runsDir = path.join(cwd, '.idwth', 'runs');
+    const runId = (await readdir(runsDir))[0]!;
+    const recompute = await recomputeJudge(path.join(runsDir, runId), {
+      expectedJudgeImplHash: currentJudgeImplHash(),
+    });
+    expect(recompute.status).toBe('match');
+    if (recompute.status === 'match') expect(recompute.verdict).toBe('BLOCKED');
+  });
+
+  it('BLOCKED：resolve ambiguous（多候选）→ 退出 2、零派发、failure_reason 含 ambiguity', async () => {
+    const provider = new FakeProvider();
+    provider.ambiguous = ['创建']; // 首个 click 目标解析出 2 个候选
+    let dispatchedClicks = 0;
+    provider.act = async (action: Action): Promise<ActionResult> => {
+      if (action.kind === 'click') dispatchedClicks += 1;
+      return { kind: action.kind, status: 'ok', dispatched: true } as ActionResult;
+    };
+    const handler = makeHandler({ connectProvider: async () => provider });
+    const { ctx, cwd } = await makeCtx();
+
+    const code = await handler(ctx);
+
+    expect(code).toBe(2);
+    expect(dispatchedClicks).toBe(0); // ambiguous 在派发前即阻断（零派发）
+    const report = await readRunArtifact<Record<string, unknown>>(cwd, 'report.json');
+    expect(report['verdict']).toBe('BLOCKED');
+    expect(String(report['failure_reason'])).toContain('ambiguity');
+
+    const judgeFile = await readRunArtifact<{
+      judge_result: { verdict: string; blocked_reason: string | null };
+      assertions: { dom: unknown[] };
+    }>(cwd, 'judge-result.json');
+    expect(judgeFile.judge_result.verdict).toBe('BLOCKED');
+    expect(judgeFile.judge_result.blocked_reason).toBe('evidence');
+    expect(judgeFile.assertions.dom).toHaveLength(0);
+
     const runsDir = path.join(cwd, '.idwth', 'runs');
     const runId = (await readdir(runsDir))[0]!;
     const recompute = await recomputeJudge(path.join(runsDir, runId), {

@@ -128,7 +128,13 @@
 
 ## 里程碑对齐
 
-- [ ] M1（Task 1~11）：无模型跑通一条用例，A3 + A8 通过，静态报告五要素可离线打开
+- [x] M1（Task 1~11）：无模型跑通一条用例，A3 + A8 通过，静态报告五要素可离线打开
+  - 证据（2026-10-20 F2 收口）：[tests/integration/cli-command-e2e.test.ts](file:///Users/freecisco_yan/WorkBuddy/JEV-E2E-Test/tests/integration/cli-command-e2e.test.ts)
+    真实 shim 子进程命令级断言——`run` PASS 全链 exit 0 五件套；歧义 exit 2 零点击（A3）；
+    `report` 五要素离线 HTML（无 script/外链、内联 style）；`judge recompute` PASS/BLOCKED
+    MATCH + 篡改 blob exit 4（A8）。
+  - 复跑：`npm run typecheck && npm run lint && npm run build && npm run test`
+    （53 文件 / 603 用例全绿）；回链：baseline tasks.md Task 11 Notes。
 - [ ] M2（Task 12~14）：A1、A2、A4、A5、**A7b** 通过（**A7a 归 M4**）
 - [ ] M3（Task 15~17）：A9、A10 通过，默认 Provider 决策有数据支撑
 - [ ] M4（Task 18）：A6、A11、**A7a** 通过，CI/离线包/doctor/门禁/合规全部通过
