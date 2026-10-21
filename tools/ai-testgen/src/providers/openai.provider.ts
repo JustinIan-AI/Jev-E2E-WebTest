@@ -1,5 +1,21 @@
 import { BaseLLMProvider, CallOptions, LLMResponse, StreamOptions } from './base.provider';
-import { withRetry, RetryableError } from '../utils/retry';
+import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
+
+const DEFAULT_TIMEOUT_MS = 300000;
+
+export class LLMTimeoutError extends NonRetryableError {
+  constructor(timeoutMs: number) {
+    super(
+      `LLM 请求超时（${timeoutMs}ms / ${Math.round(timeoutMs / 1000)}s）。` +
+        `可用 --timeout <毫秒> 调大超时，或检查网络与模型响应速度。`,
+    );
+    this.name = 'LLMTimeoutError';
+  }
+}
+
+function isAbortError(err: unknown, controller: AbortController): boolean {
+  return controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');
+}
 
 interface OpenAIConfig {
   apiKey: string;
@@ -8,7 +24,7 @@ interface OpenAIConfig {
 }
 
 interface OpenAIResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   model?: string;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
@@ -29,7 +45,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   async call(prompt: string, options?: CallOptions): Promise<LLMResponse> {
     this.validateApiKey(this.apiKey);
     const model = options?.model || this.defaultModel;
-    const timeout = options?.timeout || 60000;
+    const timeout = options?.timeout || DEFAULT_TIMEOUT_MS;
 
     const body = {
       model,
@@ -38,7 +54,7 @@ export class OpenAIProvider extends BaseLLMProvider {
         { role: 'user', content: prompt },
       ],
       temperature: options?.temperature ?? 0.2,
-      max_tokens: options?.maxTokens ?? 4096,
+      max_tokens: options?.maxTokens ?? 8192,
     };
 
     return withRetry(
@@ -66,6 +82,11 @@ export class OpenAIProvider extends BaseLLMProvider {
               );
             }
             return response.json() as Promise<OpenAIResponse>;
+          } catch (err) {
+            if (isAbortError(err, controller)) {
+              throw new LLMTimeoutError(timeout);
+            }
+            throw err;
           } finally {
             clearTimeout(timer);
           }
@@ -79,6 +100,7 @@ export class OpenAIProvider extends BaseLLMProvider {
             output: result.usage?.completion_tokens || 0,
           },
           latencyMs,
+          finishReason: result.choices?.[0]?.finish_reason,
           raw: result,
         };
       },
@@ -89,7 +111,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   async stream(prompt: string, options?: StreamOptions): Promise<LLMResponse> {
     this.validateApiKey(this.apiKey);
     const model = options?.model || this.defaultModel;
-    const timeout = options?.timeout || 120000;
+    const timeout = options?.timeout || DEFAULT_TIMEOUT_MS;
 
     const body = {
       model,
@@ -98,7 +120,7 @@ export class OpenAIProvider extends BaseLLMProvider {
         { role: 'user', content: prompt },
       ],
       temperature: options?.temperature ?? 0.2,
-      max_tokens: options?.maxTokens ?? 4096,
+      max_tokens: options?.maxTokens ?? 8192,
       stream: true,
       stream_options: { include_usage: true },
     };
@@ -108,6 +130,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     const start = performance.now();
     let fullText = '';
     let tokens = { input: 0, output: 0 };
+    let finishReason: string | undefined;
 
     try {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -148,6 +171,10 @@ export class OpenAIProvider extends BaseLLMProvider {
               fullText += content;
               options?.onToken?.(content);
             }
+            const chunkFinishReason = data.choices?.[0]?.finish_reason;
+            if (chunkFinishReason) {
+              finishReason = chunkFinishReason;
+            }
             if (data.usage) {
               tokens = {
                 input: data.usage.prompt_tokens || 0,
@@ -159,10 +186,21 @@ export class OpenAIProvider extends BaseLLMProvider {
           }
         }
       }
+    } catch (err) {
+      if (isAbortError(err, controller)) {
+        throw new LLMTimeoutError(timeout);
+      }
+      throw err;
     } finally {
       clearTimeout(timer);
     }
 
-    return { text: fullText, model, tokens, latencyMs: Math.round(performance.now() - start) };
+    return {
+      text: fullText,
+      model,
+      tokens,
+      latencyMs: Math.round(performance.now() - start),
+      finishReason,
+    };
   }
 }
