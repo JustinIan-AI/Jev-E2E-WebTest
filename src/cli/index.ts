@@ -603,7 +603,11 @@ Commands:
               init --from <feature> --base-url <url> --credentials <cred://...>
                   [--role <role>] [--out <dir>]
                   Generate contracts from an ai-testgen Gherkin .feature file;
-                  unmapped steps are written as *.draft.yaml for human completion
+                  unmapped steps are written as *.draft.yaml for human completion.
+                  Note: fixtures are declaration-only test data; they do NOT
+                  trigger any data setup. Precondition states (e.g. "already
+                  logged in") must be expressed via identity/fixtures, not as
+                  executable steps; preconditions setup is tracked in issue #12
   validate    Validate a contract (schema + 9 executability rules)
   run         Execute a contract (one-shot)
   replay      Replay a trace (--verify default | --heal explicit)

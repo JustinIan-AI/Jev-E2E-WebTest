@@ -51,6 +51,11 @@ export function expandTemplate(value: string, scope: RunScope): string {
  * 对 fixtures 所有值做两级模板替换。
  * Contract schema 规定 fixtures 为 string→string（§3.1），故签名收窄为
  * string→string；模板未命中的占位符原样保留。
+ *
+ * @internal 尚未接入 run 主回路：本函数只展开 ${runId}/${contractId}，
+ * 不触发任何数据准备/setup；生产路径当前无调用方。fixtures 仅为声明性测试数据，
+ * 凭据必须走 cred:// / @fixture 引用（R3）。中期 preconditions setup 执行通道
+ * 落地后再行接线（见 GitHub issue #12）。
  */
 export function instantiateFixtures(
   fixtures: Record<string, string>,
