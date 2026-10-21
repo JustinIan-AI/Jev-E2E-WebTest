@@ -43,7 +43,7 @@ function hasRule(violations: ContractViolation[], rule: string): boolean {
 describe('validateContract —— 九条校验规则 (TR-3.1)', () => {
   it('合法 Contract 通过（含 http.within_run 且运行上下文带 run_started_at）', () => {
     const r = validateContract(validContract, {
-      runtimeContext: { runStartedAt: '2026-10-12T08:00:00.000Z' },
+      runtimeContext: { runStartedAt: '2026-10-21T08:00:00.000Z' },
     });
     expect(r.valid, JSON.stringify(r.violations)).toBe(true);
   });
@@ -96,6 +96,42 @@ describe('validateContract —— 九条校验规则 (TR-3.1)', () => {
       metadata: { password_ref: '@fixture.login_password' },
     };
     expect(validateContract(fixtureRef).valid).toBe(true);
+  });
+
+  it('规则3/#12短期：fixtures 敏感键字面量同样命中 R3，path 定位到 fixtures.<key>', () => {
+    const literalInFixtures = {
+      ...validContract,
+      fixtures: { login_password: 'hunter2', api_token: 'abc123' },
+    };
+    const violations = violationsOf(literalInFixtures);
+    expect(hasRule(violations, 'R3-credential-literal')).toBe(true);
+    const paths = violations.filter((v) => v.rule === 'R3-credential-literal').map((v) => v.path);
+    expect(paths).toContain('fixtures.login_password');
+    expect(paths).toContain('fixtures.api_token');
+  });
+
+  it('规则3/#12短期：fixtures 内 cred:// 与 @fixture 引用值放行（与 identity 同规则）', () => {
+    const credRef = {
+      ...validContract,
+      fixtures: { operator_password: 'cred://staging-operator' },
+    };
+    expect(validateContract(credRef).valid, JSON.stringify(validateContract(credRef).violations)).toBe(true);
+
+    const fixtureRef = {
+      ...validContract,
+      fixtures: { password_value: '@fixture.login_password', notify_email: '@fixture.operator_email' },
+    };
+    const r = validateContract(fixtureRef);
+    expect(r.valid, JSON.stringify(r.violations)).toBe(true);
+  });
+
+  it('规则3/#12短期：fixtures 非敏感键（普通测试数据）不受 R3 影响', () => {
+    const benign = {
+      ...validContract,
+      fixtures: { account_name: 'demo-operator', deployment_name: 'nginx-demo' },
+    };
+    const r = validateContract(benign);
+    expect(r.valid, JSON.stringify(r.violations)).toBe(true);
   });
 
   it('规则4：irreversible 步骤缺 postcondition 被拒绝', () => {
@@ -186,7 +222,7 @@ describe('validateContract —— 九条校验规则 (TR-3.1)', () => {
     expect(hasRule(violationsOf(badFormat), 'R8-id-unique')).toBe(true);
 
     const duplicate = violationsOf(validContract, { knownIds: ['workload.create'] });
-    expect(hasRule(duplicate, 'R8-id-unique')).toBe(true);
+    expect(hasRule(duplicate), 'R8-id-unique')).toBe(true);
   });
 
   it('规则9：http.within_run=true 但运行上下文无 run_started_at 注入点被拒绝', () => {
@@ -194,7 +230,7 @@ describe('validateContract —— 九条校验规则 (TR-3.1)', () => {
     expect(hasRule(noWindow, 'R9-within-run-window')).toBe(true);
 
     const withWindow = validateContract(validContract, {
-      runtimeContext: { runStartedAt: '2026-10-12T08:00:00.000Z' },
+      runtimeContext: { runStartedAt: '2026-10-21T08:00:00.000Z' },
     });
     expect(withWindow.valid).toBe(true);
   });
