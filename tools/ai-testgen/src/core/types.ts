@@ -49,6 +49,10 @@ export interface GeneratedFile {
   content: string;
 }
 
+export interface WrittenFile extends GeneratedFile {
+  writtenPath: string;
+}
+
 export interface GenConfig {
   provider: {
     type: 'openai' | 'anthropic' | 'custom';
@@ -66,6 +70,7 @@ export interface GenConfig {
     includeBoundary: boolean;
     maxTokens: number;
     temperature: number;
+    timeoutMs: number;
   };
   cache?: {
     dir: string;
@@ -88,8 +93,9 @@ export const DEFAULT_CONFIG: GenConfig = {
   options: {
     includeNegative: true,
     includeBoundary: true,
-    maxTokens: 4096,
+    maxTokens: 8192,
     temperature: 0.2,
+    timeoutMs: 300000,
   },
   cache: {
     dir: '.ai-testgen/cache',

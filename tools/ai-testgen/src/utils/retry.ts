@@ -12,6 +12,13 @@ export class RetryableError extends Error {
   }
 }
 
+export class NonRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NonRetryableError';
+  }
+}
+
 export interface RetryOptions {
   maxRetries?: number;
   baseDelayMs?: number;
@@ -19,6 +26,9 @@ export interface RetryOptions {
 }
 
 function isRetryable(error: unknown): boolean {
+  if (error instanceof NonRetryableError) {
+    return false;
+  }
   if (error instanceof RetryableError) {
     if (error.statusCode && NON_RETRYABLE_STATUS_CODES.has(error.statusCode)) {
       return false;
