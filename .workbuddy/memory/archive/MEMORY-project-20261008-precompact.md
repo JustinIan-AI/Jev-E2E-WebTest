@@ -92,7 +92,7 @@
 > 前提：「候选不可改写 evaluator」。**所以「学习飞轮」与「判定权独占」不冲突，可同时成立。**
 
 ## ★ 首批验证对象：openFuyao 管理平台（E01 已侦察，2026-09-23）
-- 地址 `https://192.168.36.152:31616`，账号 `admin` / `platform-admin`。**单集群 `host`**。K8s + nginx ingress（内部自签 CA）。
+- 地址 `https://openfuyao-staging.internal.example.com:31616`，账号 `admin` / `platform-admin`。**单集群 `host`**。K8s + nginx ingress（内部自签 CA）。
 - 前端：**React + Ant Design + ECharts**；单 bundle 5.33MB；**UI 文案完全外置**（`i18next-http-backend`，`/locales/{{lng}}/{{ns}}.json`，ns 仅 nav/common/alert/dns）。
 - 测试面：**106 路由 / 13 个一级菜单 / 14 个 K8s API 组**。菜单权威清单在 `/locales/zh-CN/nav.json`。
 - **登录机理**：OAuth2 授权码 + `gorilla.csrf.Token` + per-request `state`；密码以 `Array.from(TextEncoder.encode(pwd))` **字节数组**提交。→ **登录不可进冻结产物**。

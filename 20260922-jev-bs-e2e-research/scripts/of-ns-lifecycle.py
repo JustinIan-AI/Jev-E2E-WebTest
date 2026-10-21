@@ -24,7 +24,7 @@ import os, ssl, json, re, gzip, sys, time, uuid, argparse
 from datetime import datetime
 import urllib.request, urllib.error, urllib.parse, http.cookiejar
 
-BASE = os.environ.get("OF_BASE", "https://192.168.36.152:31616")
+BASE = os.environ.get("OF_BASE", "https://openfuyao-staging.internal.example.com:31616")
 CLUSTER = os.environ.get("OF_CLUSTER", "host")
 USER = os.environ.get("OF_USER"); PWD = os.environ.get("OF_PWD")
 if not (USER and PWD):

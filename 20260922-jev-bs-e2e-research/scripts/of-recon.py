@@ -16,7 +16,7 @@ openFuyao 目标侦察（可复跑）—— 只读，不创建/修改任何业�
 import os, ssl, json, re, gzip, sys, argparse
 import urllib.request, urllib.error, http.cookiejar
 
-BASE = os.environ.get("OF_BASE", "https://192.168.36.152:31616")
+BASE = os.environ.get("OF_BASE", "https://openfuyao-staging.internal.example.com:31616")
 USER = os.environ.get("OF_USER"); PWD = os.environ.get("OF_PWD")
 if not (USER and PWD):
     sys.exit("!! 需先设置 OF_USER / OF_PWD 环境变量（不要写进文件）")

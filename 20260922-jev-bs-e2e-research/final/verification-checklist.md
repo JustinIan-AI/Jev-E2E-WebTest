@@ -210,7 +210,7 @@
 
 | ID | 待验证事项 | 为什么必须真实系统 | 需要你提供什么 | 优先 | 判定 |
 |---|---|---|---|---|---|
-| **E01** | **首批验证对象是否可用** | ✅ **已完成（2026-09-23）**：`https://192.168.36.152:31616` = **openFuyao 管理平台**（K8s 容器平台，单集群 `host`，账号 `admin`/`platform-admin`）。106 条路由 · 14 个 K8s API 组经代理 · 13 个一级菜单。详见 [`e01-openfuyao-recon.md`](e01-openfuyao-recon.md) | —— | ✅ **通过** | ✅ **通过** |
+| **E01** | **首批验证对象是否可用** | ✅ **已完成（2026-09-23）**：`https://openfuyao-staging.internal.example.com:31616` = **openFuyao 管理平台**（K8s 容器平台，单集群 `host`，账号 `admin`/`platform-admin`）。106 条路由 · 14 个 K8s API 组经代理 · 13 个一级菜单。详见 [`e01-openfuyao-recon.md`](e01-openfuyao-recon.md) | —— | ✅ **通过** | ✅ **通过** |
 | **E02** | **后端数据隔离方案** | ✅ **已完成（2026-09-23）**：`ns-idwth-<runId>` 作为隔离单元**实测可行** —— 创建 201 · 归属标签可回读 · 内部可读 · 删除幂等 · 基线 diff 三项全空（未触碰已有资源）。**20/20 通过**。详见 [`e02-namespace-isolation.md`](e02-namespace-isolation.md) | —— | ✅ **通过** | ✅ **通过** |
 | **E03** | **测试数据重置归属** | ✅ **技术侧已闭**：① 删 namespace = 删全部资源 ② **重复删除返回 404 属正常**（幂等，可安全重跑）③ `labelSelector=idwth.io/run-id=<runId>` 可精确定位单个 run 残留（实测命中 1 / 对不存在 runId 命中 0，不误伤）。**仅剩组织问题**：谁在什么时机调用 | 你或系统负责人确认归属（建议：正常结束走 Runtime `finally`；进程被 kill 走下次 run 启动的**孤儿巡检**；平台 TTL 见 E06） | 🟡 P1 | 待定（**仅组织问题**） |
 | **E04** | 异步资源状态的 **Eventually 断言** 语义（P1） | K8s 资源 `Pending → Running` 是常态异步；现设计只有固定 deadline。**E02 顺带实测：namespace 释放需 6.2s（Terminating→404）** | 真实资源创建耗时分布（P50/P95），用于定 `state` 类 deadline | 🟡 P2 | 待定 |
