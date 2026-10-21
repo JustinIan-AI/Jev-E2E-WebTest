@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PrdParser } from '../../src/parsers/prd.parser';
 import { OpenApiParser } from '../../src/parsers/openapi.parser';
 import { StoryParser } from '../../src/parsers/story.parser';
+import { logger } from '../../src/utils/logger';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
@@ -146,5 +147,86 @@ describe('StoryParser - canParse', () => {
     const content =
       'Scenario: Login\nGiven a user exists\nWhen they enter credentials\nThen they see dashboard';
     expect(parser.canParse(content)).toBe(true);
+  });
+});
+
+describe('StoryParser - three story forms (F3-2)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('extracts "As an" stories with a benefit clause', () => {
+    const parser = new StoryParser();
+    const content = 'As an admin, I want to delete users, so that I can keep the platform clean.';
+    const result = parser.parse(content);
+    expect(result.scenarios).toHaveLength(1);
+    expect(result.scenarios[0].title).toBe('As an admin');
+    expect(result.scenarios[0].description).toContain('delete users');
+    expect(result.scenarios[0].description).toContain('so that I can keep the platform clean');
+  });
+
+  it('extracts stories without a "so that" benefit clause', () => {
+    const parser = new StoryParser();
+    const content = 'As an editor, I want to preview drafts.';
+    const result = parser.parse(content);
+    expect(result.scenarios).toHaveLength(1);
+    expect(result.scenarios[0].title).toBe('As an editor');
+    expect(result.scenarios[0].description).toContain('preview drafts');
+    expect(result.scenarios[0].description).not.toContain('so that');
+  });
+
+  it('extracts multiple stories written one per line as separate scenarios', () => {
+    const parser = new StoryParser();
+    const content = [
+      'As a buyer, I want to add items to the cart, so that I can purchase them later.',
+      'As a buyer, I want to remove items from the cart.',
+      'As an admin, I want to view sales reports, in order to track revenue.',
+    ].join('\n');
+    const result = parser.parse(content);
+    expect(result.scenarios).toHaveLength(3);
+    expect(result.scenarios.map((s) => s.title)).toEqual([
+      'As a buyer',
+      'As a buyer',
+      'As an admin',
+    ]);
+  });
+
+  it('supports comma-separated multi-line layout', () => {
+    const parser = new StoryParser();
+    const content =
+      'As a visitor, I want to reset my password, so that I can regain access,\n' +
+      'As a visitor, I want to update my profile email.';
+    const result = parser.parse(content);
+    expect(result.scenarios).toHaveLength(2);
+  });
+
+  it('keeps canParse consistent with extraction: pass means >=1 extracted', () => {
+    const parser = new StoryParser();
+    const cases = [
+      'As an admin, I want to delete users, so that the platform stays clean.',
+      'As a user, I want to log in.',
+    ];
+    for (const content of cases) {
+      expect(parser.canParse(content)).toBe(true);
+      expect(parser.parse(content).scenarios.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('keeps canParse consistent with extraction: no extraction means false', () => {
+    const parser = new StoryParser();
+    const content = 'this is just plain prose with no story grammar at all';
+    expect(parser.canParse(content)).toBe(false);
+    expect(parser.parse(content).scenarios).toHaveLength(1); // placeholder only
+  });
+
+  it('returns a placeholder scenario with an explicit warning on fallback', () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const parser = new StoryParser();
+    const content = 'nothing parseable here, just random text';
+    const result = parser.parse(content);
+    expect(result.scenarios).toHaveLength(1);
+    expect(result.warnings).toBeDefined();
+    expect(result.warnings![0].code).toBe('STORY_FALLBACK_WHOLE_TEXT');
+    expect(warnSpy).toHaveBeenCalled();
   });
 });
