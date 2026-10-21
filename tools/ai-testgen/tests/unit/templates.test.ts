@@ -37,7 +37,7 @@ function makeApiInput(): ParsedInput {
       {
         method: 'POST',
         path: '/users',
-        summary: 'Create user',
+        summary: 'List users',
         requestBody: { contentType: 'application/json' },
         responses: { '201': { description: 'Created' } },
       },
@@ -88,6 +88,44 @@ describe('GherkinTemplate', () => {
     expect(systemPrompt).toContain('Gherkin');
     expect(systemPrompt).toContain('Given');
     expect(userPrompt).toContain('Login Feature');
+  });
+
+  it('should constrain steps to the closed action vocabulary', () => {
+    const template = new GherkinTemplate();
+    const { systemPrompt } = template.buildPrompt(makeParsedInput(), DEFAULT_CONFIG);
+
+    // Closed action set enforced by the downstream mapper (see AGENTS.md)
+    for (const verb of ['click', 'fill', 'select', 'scroll', 'wait', 'navigate', 'assert only']) {
+      expect(systemPrompt.toLowerCase()).toContain(verb);
+    }
+  });
+
+  it('should require quoted target-first phrasing and forbid subject prefixes', () => {
+    const template = new GherkinTemplate();
+    const { systemPrompt } = template.buildPrompt(makeParsedInput(), DEFAULT_CONFIG);
+    const lower = systemPrompt.toLowerCase();
+
+    // Target before value, both wrapped in double quotes, on the fill example
+    expect(lower).toContain('target');
+    expect(systemPrompt).toMatch(/fill[^"\n]*"[^"]+"[^"\n]*"[^"]+"/i);
+    expect(systemPrompt).toMatch(/target comes before the value/i);
+    // No narrative subject prefixes such as "I click" / "用户点击"
+    expect(lower).not.toMatch(/\bI\s+(click|enter|type|fill|select)\b/i);
+    expect(systemPrompt).not.toContain('用户点击');
+    expect(systemPrompt).not.toContain('我点击');
+  });
+
+  it('should not instruct Background setup or already-logged-in preconditions', () => {
+    const template = new GherkinTemplate();
+    const { systemPrompt } = template.buildPrompt(makeParsedInput(), DEFAULT_CONFIG);
+    const lower = systemPrompt.toLowerCase();
+
+    // The old setup directive must be gone and replaced by an explicit ban
+    expect(lower).not.toContain('use background for shared setup');
+    expect(lower).toMatch(/do not use background/);
+    expect(lower).not.toMatch(/am already logged in|is already logged in/);
+    expect(systemPrompt).not.toContain('已登录');
+    expect(systemPrompt).not.toContain('已存在');
   });
 });
 

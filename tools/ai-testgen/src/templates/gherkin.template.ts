@@ -17,9 +17,20 @@ Requirements:
 - Write clear, business-readable steps
 ${includeNeg ? '- Include negative scenarios (error paths, invalid data)' : ''}
 ${includeBound ? '- Include boundary scenarios (limits, edge cases)' : ''}
-- Use Background for shared setup steps
 - Add @tags for categorization
-- Output ONLY valid Gherkin syntax`;
+- Output ONLY valid Gherkin syntax
+
+Step vocabulary (closed set, do not invent other actions):
+- Every interactive step MUST start with one of these verbs: click, fill, select, scroll, wait, navigate, assert only
+- Put the semantic target phrase in double quotes, then the action value (if any) in another pair of double quotes.
+  Target comes BEFORE the value.
+  Good: fill in "username input field" with "zhangsan"; select "country dropdown" with "China"; click "confirm button"; navigate "login page"; scroll "order list"; wait "submit button"; assert only "welcome banner" is visible
+  Bad patterns (never produce them): subject-prefixed sentences (first-person or actor-prefixed), or value-first ordering.
+- Do not use subject prefixes. Start directly with the verb, never with a first-person pronoun or an actor noun.
+- Targets are semantic phrases only: no CSS selectors, XPath, coordinates, or JavaScript.
+- Do not use Background for setup. Do not phrase preconditions as already-performed action steps
+  (avoid logged-in or already-created-state written as prior actions, in either English or Chinese).
+  Express pre-existing state through identity/setup declarations instead of action steps.`;
 
     const scenarios = input.scenarios
       .map((s) => {
