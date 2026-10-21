@@ -56,7 +56,7 @@ const REASON_GUIDANCE: Record<string, string> = {
   'ambiguous-target':
     '步骤中引号片段过多、目标不唯一；请拆分为单一步骤，仅保留“目标”与“值”两个引号片段，不要让系统猜测目标。',
   'unrecognized-assertion':
-    '请改写为封闭 DOM 断言：应该看到“目标”（visible）、不应该看到“目标”（absent）、' +
+    '请改写为封闭 DOM 断言：应该看到“目标”（visible）、不应该看到（absent）、' +
     '看到 <数量> 个（count）、值为（value）、勾选（checked）、URL 为（url）；目标需加引号。',
 };
 
