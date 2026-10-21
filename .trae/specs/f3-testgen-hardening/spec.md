@@ -138,9 +138,12 @@ npm run typecheck && npm run lint && npm run build && npm run test
 
 | 文件 | 偏离 | 关联 issue |
 |---|---|---|
-| `src/core/generator.ts` | 抽出统一 Unicode slug 化；两处路径复用；透传 timeout；写前截断判定；token 日志 | #7 #4 #5 |
-| `src/outputs/base.output.ts` | `write` 重名自动加序号、不静默覆盖；返回/暴露最终路径 | #7 |
-| `src/parsers/story.parser.ts` | 统一 `As an?`、可选 benefit、多行；canParse≡可提取；fallback 显式 warn | #6 |
-| `src/providers/openai.provider.ts` | 可配置超时+可操作 AbortError；记录 finish_reason | #4 #5 |
-| `src/core/types.ts` | `options.timeoutMs`；`LLMResponse.finishReason`；默认 maxTokens 8192 | #4 #5 |
-| `src/cli.ts` | `--timeout` / `--max-tokens`；dry-run 展示 parser warning；截断非 0 退出 | #4 #5 #6 |
+| `src/core/generator.ts` | 抽出统一 Unicode slug 化（复用 `utils/slug`）；透传 timeout；写前截断判定（`ContentTruncatedError`）；token 日志含 outputTokens/maxTokens | #7 #4 #5 |
+| `src/utils/slug.ts` | 新增：统一 Unicode 安全 slug 化，供 generator 与 outputs 两处路径复用 | #7 |
+| `src/outputs/base.output.ts` | `write` 重名自动加序号、不静默覆盖；返回/暴露最终路径（`WrittenFile`） | #7 |
+| `src/parsers/story.parser.ts` | 统一 `As an?`、可选 benefit、多行；canParse≡可提取；新增宽松 `looksLikeStory`（意图判定与严格提取分离）；fallback 显式 warn | #6 |
+| `src/providers/base.provider.ts` | `CallOptions.timeoutMs`；`LLMResponse.finishReason` | #4 #5 |
+| `src/providers/openai.provider.ts` | 可配置超时（AbortSignal + 可操作 `LLMTimeoutError`）；call/stream 回填 finish_reason；body 默认 max_tokens 8192 | #4 #5 |
+| `src/utils/retry.ts` | `NonRetryableError` 首检不重试（超时类错误严格只发一次） | #4 |
+| `src/core/types.ts` | `options.timeoutMs`；默认 maxTokens 4096 → 8192 | #4 #5 |
+| `src/cli.ts` | `--timeout` / `--max-tokens`（校验抽入 `applyTimeoutAndMaxTokens`）；dry-run 展示 parser warning；截断非 0 退出 | #4 #5 #6 |
