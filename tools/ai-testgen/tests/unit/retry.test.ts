@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { withRetry, RetryableError } from '../../src/utils/retry';
+import { withRetry, RetryableError, NonRetryableError } from '../../src/utils/retry';
 
 describe('withRetry', () => {
   beforeEach(() => {
@@ -74,6 +74,13 @@ describe('withRetry', () => {
 
     // Exponential: 100 * 2^0 = 100, 100 * 2^1 = 200, 100 * 2^2 = 400
     expect(delays).toEqual([100, 200, 400]);
+  });
+
+  it('does NOT retry NonRetryableError (e.g. timeout)', async () => {
+    const fn = vi.fn().mockRejectedValue(new NonRetryableError('request timed out'));
+
+    await expect(withRetry(fn, { baseDelayMs: 10 })).rejects.toThrow('request timed out');
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it('retries non-RetryableError (plain Error from network failure)', async () => {
