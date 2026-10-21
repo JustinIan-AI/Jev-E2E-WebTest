@@ -37,7 +37,7 @@ function makeApiInput(): ParsedInput {
       {
         method: 'POST',
         path: '/users',
-        summary: 'List users',
+        summary: 'Create user',
         requestBody: { contentType: 'application/json' },
         responses: { '201': { description: 'Created' } },
       },

@@ -222,7 +222,7 @@ describe('validateContract —— 九条校验规则 (TR-3.1)', () => {
     expect(hasRule(violationsOf(badFormat), 'R8-id-unique')).toBe(true);
 
     const duplicate = violationsOf(validContract, { knownIds: ['workload.create'] });
-    expect(hasRule(duplicate), 'R8-id-unique')).toBe(true);
+    expect(hasRule(duplicate, 'R8-id-unique')).toBe(true);
   });
 
   it('规则9：http.within_run=true 但运行上下文无 run_started_at 注入点被拒绝', () => {
