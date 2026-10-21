@@ -52,7 +52,7 @@ const REASON_GUIDANCE: Record<string, string> = {
   'unmapped-action':
     '请改写为封闭动作集内的步骤：打开/访问（navigate）、点击（click）、' +
     '在“目标”中填写“值”（fill）、选择（select）、滚动（scroll）、等待（wait）；' +
-    '目标与均加引号，目标写在值之前，目标只能是语义短语（不得含 selector/xpath/坐标）。',
+    '目标与值均加引号，目标写在值之前，目标只能是语义短语（不得含 selector/xpath/坐标）。',
   'ambiguous-target':
     '步骤中引号片段过多、目标不唯一；请拆分为单一步骤，仅保留“目标”与“值”两个引号片段，不要让系统猜测目标。',
   'unrecognized-assertion':
