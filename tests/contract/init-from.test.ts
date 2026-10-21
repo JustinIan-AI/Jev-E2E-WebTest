@@ -128,9 +128,13 @@ describe('idwth init --from（决策 1~3）', () => {
     const doc = parseYaml(raw) as Record<string, any>;
     expect(doc._draft.status).toBe('needs-human-completion');
     expect(doc._draft.source_feature).toBe(FIXTURE);
-    expect(doc._draft.unmapped_steps).toEqual([
-      { keyword: 'When', text: 'I upload a profile picture', reason: 'unmapped-action' },
-    ]);
+    expect(doc._draft.unmapped_steps).toHaveLength(1);
+    expect(doc._draft.unmapped_steps[0]).toMatchObject({
+      keyword: 'When',
+      text: 'I upload a profile picture',
+      reason: 'unmapped-action',
+    });
+    expect(typeof doc._draft.unmapped_steps[0].guidance).toBe('string');
   });
 
   it('多未映射步骤的 draft 逐条保留原文，不丢弃', async () => {
@@ -146,6 +150,81 @@ describe('idwth init --from（决策 1~3）', () => {
       'unmapped-action',
       'unrecognized-assertion',
     ]);
+  });
+
+  it('#11-P2 每个未映射步骤带可操作指引 guidance（按 reason 分类）', async () => {
+    const cwd = await newCwd();
+    await main(BASE_ARGS, { cwd });
+    const raw = await readFile(
+      path.join(cwd, '.idwth/contracts', DRAFT_FILES[0]!),
+      'utf8',
+    );
+    const doc = parseYaml(raw) as Record<string, any>;
+    const step = doc._draft.unmapped_steps[0];
+    expect(step.reason).toBe('unmapped-action');
+    expect(typeof step.guidance).toBe('string');
+    expect(step.guidance.length).toBeGreaterThan(10);
+    // 指引必须落到封闭动作集，而非开放叙述
+    expect(step.guidance).toMatch(/点击|填写|选择|滚动|等待|打开|访问/);
+  });
+
+  it('#11-P2 unmapped-precondition 指引：前置状态用 identity/fixtures 声明表达，不得改写成动作', async () => {
+    const cwd = await newCwd();
+    const feature = path.join(cwd, 'precondition.feature');
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(
+      feature,
+      [
+        'Feature: Precondition Hint',
+        '  Scenario: operator with history',
+        '    Given I am already logged in as an operator',
+        '    When click "history button"',
+        '    Then I should see the history panel',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const code = await main(
+      [
+        'init',
+        '--from',
+        feature,
+        '--base-url',
+        'https://staging.example.com',
+        '--credentials',
+        'cred://staging-operator',
+      ],
+      { cwd },
+    );
+    expect(code).toBe(EXIT_CODES.PASS);
+    const files = await readdir(path.join(cwd, '.idwth/contracts'));
+    const draftName = files.find((f) => f.endsWith('.draft.yaml'));
+    expect(draftName).toBeTruthy();
+    const raw = await readFile(
+      path.join(cwd, '.idwth/contracts', draftName!),
+      'utf8',
+    );
+    const doc = parseYaml(raw) as Record<string, any>;
+    const given = doc._draft.unmapped_steps.find(
+      (s: any) => s.keyword === 'Given',
+    );
+    expect(given).toBeTruthy();
+    expect(given.reason).toBe('unmapped-precondition');
+    expect(given.guidance).toMatch(/identity|fixtures|身份|凭据|前置/);
+    expect(given.guidance).toMatch(/不要|不得|勿|而非|而不是/);
+    // 未映射前置不得产生 ready 假落定
+    expect(files.filter((f) => f.endsWith('.contract.yaml'))).toHaveLength(0);
+  });
+
+  it('#11-P2 顶层 note 含前置状态可操作总则', async () => {
+    const cwd = await newCwd();
+    await main(BASE_ARGS, { cwd });
+    const raw = await readFile(
+      path.join(cwd, '.idwth/contracts', DRAFT_FILES[0]!),
+      'utf8',
+    );
+    const doc = parseYaml(raw) as Record<string, any>;
+    expect(doc._draft.note).toMatch(/identity|fixtures|前置|封闭动作/);
   });
 
   it('支持 --out 自定义输出目录与 --flag=value 形式', async () => {
