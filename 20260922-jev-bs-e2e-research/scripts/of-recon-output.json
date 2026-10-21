@@ -1,5 +1,5 @@
 {
-  "base": "https://192.168.36.152:31616",
+  "base": "https://openfuyao-staging.internal.example.com:31616",
   "login_cookies_after": [
     "idpLogin",
     "csrf",

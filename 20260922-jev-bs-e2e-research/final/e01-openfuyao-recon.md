@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| 目标 | `https://192.168.36.152:31616` |
+| 目标 | `https://openfuyao-staging.internal.example.com:31616` |
 | 产品 | **openFuyao 管理平台**（云原生容器管理平台） |
 | 侦察时间 | 2026-09-23 |
 | 侦察方式 | **只读**：连通性探测 + 登录页静态分析 + SPA bundle 静态提取 + **只读 GET API 探测** |
@@ -213,7 +213,7 @@ overviewUrl:     /clusters/${c}/rest/monitoring/v1
 ```bash
 cd 20260922-jev-bs-e2e-research/scripts
 export OF_USER=... OF_PWD=...          # 凭据只走环境变量，不落盘
-export OF_BASE=https://192.168.36.152:31616
+export OF_BASE=https://openfuyao-staging.internal.example.com:31616
 python3 of-recon.py --api              # 全量侦察 + 只读 API 探测
 ```
 

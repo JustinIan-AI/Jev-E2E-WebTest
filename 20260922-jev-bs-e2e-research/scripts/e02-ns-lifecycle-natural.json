@@ -1,6 +1,6 @@
 {
   "authorized_scope": "仅创建/删除测试命名空间",
-  "base": "https://192.168.36.152:31616",
+  "base": "https://openfuyao-staging.internal.example.com:31616",
   "cluster": "host",
   "run_id": "idwth-20260923-7b340f",
   "run_started_at": "2026-09-23T15:02:03+0800",

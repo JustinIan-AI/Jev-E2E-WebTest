@@ -458,7 +458,7 @@ function inconclusive(summary: string): StepVerdict {
 
 ## 10. 建议的三个动作
 
-1. **把它拉进 IDWTH 的选型基线，做一次本地实测**（半天）：用 openFuyao 的 `https://192.168.36.152:31616` 建一个 target，写 3 条用例 —— ①纯定位器登录 ②`agent.act` 走一次创建命名空间 ③`fetch` 断言 K8s 代理 API。**实测重点不是「能不能跑通」，而是三件事**：
+1. **把它拉进 IDWTH 的选型基线，做一次本地实测**（半天）：用 openFuyao 的 `https://openfuyao-staging.internal.example.com:31616` 建一个 target，写 3 条用例 —— ①纯定位器登录 ②`agent.act` 走一次创建命名空间 ③`fetch` 断言 K8s 代理 API。**实测重点不是「能不能跑通」，而是三件事**：
    - `--strict-cache` 下的**升级/改版行为**（记录陈旧时报错是否干脆）
    - `agent.assert` 在**加载中/Canvas 页面**上到底报什么（验证 §6.1 的假 FAIL 通道）
    - trace.md 里**凭据与渲染密钥的泄漏情况**（`grep` trace 与截图产物）

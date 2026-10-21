@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 |---|---|
 | 日期 | 2026-09-23 |
-| 目标系统 | openFuyao 管理平台 `https://192.168.36.152:31616` · 单集群 `host` |
+| 目标系统 | openFuyao 管理平台 `https://openfuyao-staging.internal.example.com:31616` · 单集群 `host` |
 | 授权范围 | **用户明确：仅允许创建和删除测试命名空间，不允许操作任何已有配置/资源** |
 | 实测方式 | K8s 原生 API 经控制台代理 `/clusters/host/api/kubernetes/api/v1/...`（不经 UI） |
 | 结果 | **20/20 通过**（其中 1 项为「判据可用性」的**证伪性失败**，见 §4.2） |
