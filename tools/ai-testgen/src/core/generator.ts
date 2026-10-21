@@ -17,9 +17,24 @@ import { OpenAIProvider } from '../providers/openai.provider';
 import { AnthropicProvider } from '../providers/anthropic.provider';
 import { CustomProvider } from '../providers/custom.provider';
 import { extractFirstCodeBlock } from '../utils/prompt';
+import { safeSlug } from '../utils/slug';
 import { logger } from '../utils/logger';
 import { Progress } from '../utils/progress';
 import { Cache } from '../utils/cache';
+
+/**
+ * 模型因 max_tokens 上限被截断（finish_reason='length'）。
+ * 此时产出为残缺内容，Generator 不写正式文件，直接抛错交由 CLI 提示。
+ */
+export class ContentTruncatedError extends Error {
+  constructor(public readonly detail: { outputTokens: number; maxTokens: number }) {
+    super(
+      `LLM 输出在 ${detail.outputTokens} tokens 处因 max_tokens=${detail.maxTokens} 上限被截断，` +
+        `未写入残缺文件。可用 --max-tokens <更大的值> 提高上限，或拆分输入后重试。`,
+    );
+    this.name = 'ContentTruncatedError';
+  }
+}
 
 export class Generator {
   private config: GenConfig;
@@ -40,14 +55,14 @@ export class Generator {
     options?: { stream?: boolean; progress?: Progress },
   ): Promise<GeneratedOutput> {
     const content = fs.readFileSync(filePath, 'utf-8');
-    return this.generateFromContent(content, format, outputDir, options);
+    return this.generateFromContent(content, format, outputDir, { ...options, sourceFilePath: filePath });
   }
 
   async generateFromContent(
     content: string,
     format?: OutputFormat,
     outputDir?: string,
-    options?: { stream?: boolean; progress?: Progress },
+    options?: { stream?: boolean; progress?: Progress; sourceFilePath?: string },
   ): Promise<GeneratedOutput> {
     const input = this.detectAndParse(content);
     const outputFormat = format || this.config.output.format;
@@ -86,13 +101,21 @@ export class Generator {
         progress?.done(`Using cached response (${ageStr})`);
 
         const generatedCode = extractFirstCodeBlock(cached.response);
-        const slug = input.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .substring(0, 40);
+        const slug = safeSlug(input.title, options?.sourceFilePath);
         const file = output.createFile(slug, generatedCode);
         const dir = outputDir || this.config.output.dir;
-        if (dir) output.write([file], dir);
+        if (dir) {
+          const written = output.write([file], dir);
+          return {
+            format: outputFormat,
+            files: written,
+            summary: {
+              totalTests: this.countTests(generatedCode, outputFormat),
+              totalScenarios: input.scenarios.length,
+              format: outputFormat,
+            },
+          };
+        }
 
         return {
           format: outputFormat,
@@ -115,6 +138,7 @@ export class Generator {
         systemPrompt,
         temperature: this.config.options.temperature,
         maxTokens: this.config.options.maxTokens,
+        timeout: this.config.options.timeoutMs,
         onToken: (token) => progress?.stream(token),
       });
       process.stderr.write('\n'); // Newline after streamed output
@@ -123,28 +147,46 @@ export class Generator {
         systemPrompt,
         temperature: this.config.options.temperature,
         maxTokens: this.config.options.maxTokens,
+        timeout: this.config.options.timeoutMs,
       });
     }
 
     progress?.start('Writing files...');
 
-    logger.info(`LLM response: ${response.tokens.output} tokens, ${response.latencyMs}ms`);
+    logger.info(
+      `LLM response: ${response.tokens.output} tokens (max_tokens=${this.config.options.maxTokens}), ${response.latencyMs}ms`,
+    );
 
-    // Save to cache after successful LLM call
+    const generatedCode = extractFirstCodeBlock(response.text);
+
+    // 截断判定必须在写盘与入 cache 之前：残缺内容不落正式文件，也不污染缓存。
+    if (response.finishReason === 'length') {
+      throw new ContentTruncatedError({
+        outputTokens: response.tokens.output,
+        maxTokens: this.config.options.maxTokens,
+      });
+    }
+
+    // Save to cache after successful, non-truncated LLM call
     if (cache && cacheKey) {
       cache.set(cacheKey, response.text, { model: response.model, tokens: response.tokens });
     }
 
-    const generatedCode = extractFirstCodeBlock(response.text);
-    const slug = input.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .substring(0, 40);
+    const slug = safeSlug(input.title, options?.sourceFilePath);
     const file = output.createFile(slug, generatedCode);
 
     const dir = outputDir || this.config.output.dir;
     if (dir) {
-      output.write([file], dir);
+      const written = output.write([file], dir);
+      return {
+        format: outputFormat,
+        files: written,
+        summary: {
+          totalTests: this.countTests(generatedCode, outputFormat),
+          totalScenarios: input.scenarios.length,
+          format: outputFormat,
+        },
+      };
     }
 
     return {
@@ -163,6 +205,11 @@ export class Generator {
       return this.openApiParser.parse(content);
     }
     if (this.storyParser.canParse(content)) {
+      return this.storyParser.parse(content);
+    }
+    // 意图是用户故事（As a/an 开头）但严格语法提取为 0：
+    // 仍交给 StoryParser 走整段文本 fallback，其显式 warning 可在 dry-run 中可见。
+    if (this.storyParser.looksLikeStory(content)) {
       return this.storyParser.parse(content);
     }
     if (this.prdParser.canParse(content)) {

@@ -1,41 +1,71 @@
 import { ParsedInput, ParsedScenario } from '../core/types';
+import { logger } from '../utils/logger';
+
+export interface StoryParseWarning {
+  code: 'STORY_FALLBACK_WHOLE_TEXT';
+  message: string;
+}
 
 export class StoryParser {
-  parse(content: string): ParsedInput {
+  parse(content: string): ParsedInput & { warnings?: StoryParseWarning[] } {
     const scenarios = this.extractScenarios(content);
-    const title = scenarios[0]?.title || 'User Stories';
+
+    if (scenarios.length === 0) {
+      const message =
+        '未能按用户故事语法（As a/an … I want …）解析内容，已按整段文本处理（1 个 scenario）。';
+      logger.warn(message);
+      return {
+        type: 'story',
+        title: 'User Story',
+        scenarios: [{ title: 'User Story', description: content.substring(0, 500) }],
+        rawContent: content,
+        warnings: [{ code: 'STORY_FALLBACK_WHOLE_TEXT', message }],
+      };
+    }
 
     return {
       type: 'story',
-      title,
+      title: scenarios[0].title,
       scenarios,
       rawContent: content,
     };
   }
 
   canParse(content: string): boolean {
-    const hasAsA = /\bAs an?\s+.+?,\s*I want\b/i.test(content);
-    const hasStructuredGWT =
-      /\bGiven\b/i.test(content) &&
-      /\bWhen\b/i.test(content) &&
-      /\bThen\b/i.test(content) &&
-      /\bScenario[:\s]/i.test(content);
-    return hasAsA || hasStructuredGWT;
+    return this.extractScenarios(content).length >= 1;
+  }
+
+  /**
+   * 宽松的用户故事意图判定：存在以 As a/an 开头的行。
+   * 与严格提取分离，供 detectAndParse 在 canParse=false 时识别
+   * “意图是故事但不符合严格语法”的内容，使其走 story fallback 并显式 warn，
+   * 而不是静默落入 PRD parser。
+   */
+  looksLikeStory(content: string): boolean {
+    return /^[ \t>]*As an?\s+\w/im.test(content);
   }
 
   private extractScenarios(content: string): ParsedScenario[] {
     const scenarios: ParsedScenario[] = [];
 
-    // Extract "As a..." user stories
-    const asARegex = /As a (.+?),?\s+I want (.+?),?\s+so that (.+?)(?:\n|$)/gi;
+    // Extract "As a/an ... I want ..." user stories (benefit clause optional)
+    const storyRegex =
+      /As (an? \w[\w\s-]*?),\s*I want (.+?)(?:,\s*(?:so that|in order to) (.+?))?(?=\s*(?:\n\s*As an?\b|\n\s*Scenario[:\s]|$))/gis;
     let match;
 
-    while ((match = asARegex.exec(content)) !== null) {
+    while ((match = storyRegex.exec(content)) !== null) {
+      const role = match[1].trim();
+      const want = match[2].trim().replace(/[.,]$/, '');
+      const benefit = match[3]?.trim().replace(/[.,]$/, '');
+      const description = benefit
+        ? `As ${role}, I want ${want}, so that ${benefit}`
+        : `As ${role}, I want ${want}`;
+
       scenarios.push({
-        title: `As a ${match[1].trim()}`,
-        description: `As a ${match[1].trim()}, I want ${match[2].trim()}, so that ${match[3].trim()}`,
-        steps: [match[2].trim()],
-        preconditions: [`User is a ${match[1].trim()}`],
+        title: `As ${role}`,
+        description,
+        steps: [want],
+        preconditions: [`User is a ${role}`],
       });
     }
 
@@ -57,13 +87,6 @@ export class StoryParser {
           preconditions: givens,
         });
       }
-    }
-
-    if (scenarios.length === 0) {
-      scenarios.push({
-        title: 'User Story',
-        description: content.substring(0, 500),
-      });
     }
 
     return scenarios;

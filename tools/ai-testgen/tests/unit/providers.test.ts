@@ -260,6 +260,22 @@ describe('OpenAI retry behavior', () => {
     await expect(provider.call('hello')).rejects.toThrow('401');
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
+
+  it('should backfill finish_reason from choices (F3-4)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'truncated code' }, finish_reason: 'length' }],
+        model: 'gpt-4o-mini',
+        usage: { prompt_tokens: 50, completion_tokens: 8192 },
+      }),
+    });
+
+    const provider = new OpenAIProvider({ apiKey: 'test-key' });
+    const result = await provider.call('generate tests');
+
+    expect(result.finishReason).toBe('length');
+  });
 });
 
 describe('OpenAIProvider - streaming', () => {
@@ -303,6 +319,30 @@ describe('OpenAIProvider - streaming', () => {
     expect(result.text).toBe('Hello world!');
   });
 
+  it('should backfill finish_reason from the final chunk (F3-4)', async () => {
+    const sseData = [
+      'data: {"choices":[{"delta":{"content":"x"}}]}\n\n',
+      'data: {"choices":[{"finish_reason":"length"}],"usage":{"prompt_tokens":1,"completion_tokens":8192}}\n\n',
+      'data: [DONE]\n\n',
+    ].join('');
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(sseData));
+        controller.close();
+      },
+    });
+
+    mockFetch.mockResolvedValueOnce({ ok: true, body: stream });
+
+    const provider = new OpenAIProvider({ apiKey: 'test-key' });
+    const result = await provider.stream('hello');
+
+    expect(result.finishReason).toBe('length');
+    expect(result.tokens.output).toBe(8192);
+  });
+
   it('should handle stream error response', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -313,6 +353,56 @@ describe('OpenAIProvider - streaming', () => {
     const provider = new OpenAIProvider({ apiKey: 'test-key' });
     await expect(provider.stream('hello')).rejects.toThrow('OpenAI API error (500)');
   });
+
+  it('should throw actionable timeout error when stream never responds', async () => {
+    mockFetch.mockImplementation(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            const err = new Error('This operation was aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+    );
+
+    const provider = new OpenAIProvider({ apiKey: 'test-key' });
+    await expect(provider.stream('hello', { timeout: 50 })).rejects.toThrow(/0s[\s\S]*--timeout/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  }, 5000);
+});
+
+describe('OpenAIProvider - timeout (F3-3)', () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should throw actionable timeout error with seconds and --timeout hint', async () => {
+    mockFetch.mockImplementation(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            const err = new Error('This operation was aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+    );
+
+    const provider = new OpenAIProvider({ apiKey: 'test-key' });
+    const err = await provider.call('hello', { timeout: 50 }).catch((e) => e as Error);
+
+    expect(err.message).toMatch(/0s/);
+    expect(err.message).toMatch(/--timeout/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  }, 5000);
 });
 
 describe('AnthropicProvider - streaming', () => {

@@ -11,6 +11,8 @@ export interface LLMResponse {
   model: string;
   tokens: { input: number; output: number };
   latencyMs: number;
+  /** 模型终止原因；'length' 表示因 max_tokens 上限被截断。 */
+  finishReason?: string;
   raw?: unknown;
 }
 

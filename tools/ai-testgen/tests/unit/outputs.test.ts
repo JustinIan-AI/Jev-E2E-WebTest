@@ -39,6 +39,29 @@ describe('PlaywrightOutput', () => {
     output.write(files, nestedDir);
     expect(fs.existsSync(path.join(nestedDir, 'test.spec.ts'))).toBe(true);
   });
+
+  it('should not overwrite an existing file and append -2 on conflict', () => {
+    const output = new PlaywrightOutput();
+    const files = [{ path: 'login.spec.ts', content: 'new code' }];
+
+    const first = output.write([{ path: 'login.spec.ts', content: 'original code' }], tmpDir);
+    expect(first[0].writtenPath).toBe('login.spec.ts');
+
+    const second = output.write(files, tmpDir);
+    expect(second[0].writtenPath).toBe('login-2.spec.ts');
+    expect(fs.existsSync(path.join(tmpDir, 'login.spec.ts'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'login-2.spec.ts'))).toBe(true);
+    expect(fs.readFileSync(path.join(tmpDir, 'login.spec.ts'), 'utf-8')).toBe('original code');
+    expect(fs.readFileSync(path.join(tmpDir, 'login-2.spec.ts'), 'utf-8')).toBe('new code');
+  });
+
+  it('should keep incrementing until a free name is found', () => {
+    const output = new PlaywrightOutput();
+    output.write([{ path: 'login.spec.ts', content: 'v1' }], tmpDir);
+    output.write([{ path: 'login.spec.ts', content: 'v2' }], tmpDir);
+    const third = output.write([{ path: 'login.spec.ts', content: 'v3' }], tmpDir);
+    expect(third[0].writtenPath).toBe('login-3.spec.ts');
+  });
 });
 
 describe('GherkinOutput', () => {

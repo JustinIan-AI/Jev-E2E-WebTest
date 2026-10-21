@@ -5,10 +5,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import dotenv from 'dotenv';
 import { loadConfig, writeDefaultConfig } from './core/config';
-import { Generator } from './core/generator';
+import { Generator, ContentTruncatedError } from './core/generator';
 import { validateTypeScript, validateGherkin, validateMarkdown } from './core/validator';
 import { setLogLevel } from './utils/logger';
 import { OutputFormat } from './core/types';
+import { StoryParseWarning } from './parsers/story.parser';
 import { Progress } from './utils/progress';
 import { Cache } from './utils/cache';
 
@@ -22,6 +23,28 @@ function validateFormat(format: string): asserts format is OutputFormat {
   if (!(VALID_FORMATS as readonly string[]).includes(format)) {
     console.error(`Unknown format '${format}'. Supported: ${VALID_FORMATS.join(', ')}`);
     process.exit(1);
+  }
+}
+
+function applyTimeoutAndMaxTokens(
+  config: ReturnType<typeof loadConfig>,
+  options: { timeout?: string; maxTokens?: string },
+): void {
+  if (options.timeout !== undefined) {
+    const timeoutMs = Number(options.timeout);
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+      console.error(`Invalid --timeout value '${options.timeout}'. Expected a positive integer (milliseconds).`);
+      process.exit(1);
+    }
+    config.options.timeoutMs = timeoutMs;
+  }
+  if (options.maxTokens !== undefined) {
+    const max = Number(options.maxTokens);
+    if (!Number.isInteger(max) || max <= 0) {
+      console.error(`Invalid --max-tokens value '${options.maxTokens}'. Expected a positive integer.`);
+      process.exit(1);
+    }
+    config.options.maxTokens = max;
   }
 }
 
@@ -45,6 +68,8 @@ program
   .option('--no-stream', 'Disable streaming output')
   .option('--dry-run', 'Show parsed input and prompt without calling LLM')
   .option('--model <model>', 'Override LLM model')
+  .option('--timeout <ms>', 'LLM request timeout in milliseconds')
+  .option('--max-tokens <n>', 'Maximum tokens for the LLM response')
   .option('--no-cache', 'Bypass response cache')
   .option('--clear-cache', 'Clear all cached responses and exit')
   .option('-v, --verbose', 'Enable verbose logging')
@@ -59,6 +84,7 @@ program
     if (options.negative === false) config.options.includeNegative = false;
     if (options.boundary === false) config.options.includeBoundary = false;
     if (options.model) config.provider.model = options.model;
+    applyTimeoutAndMaxTokens(config, options);
 
     if (options.clearCache) {
       const cacheDir = config.cache?.dir || '.ai-testgen/cache';
@@ -86,6 +112,13 @@ program
       console.log(`\nInput type: ${input.type}`);
       console.log(`Title: ${input.title}`);
       console.log(`Scenarios: ${input.scenarios.length}`);
+      const parserWarnings = (input as { warnings?: StoryParseWarning[] }).warnings;
+      if (parserWarnings && parserWarnings.length > 0) {
+        console.warn('\nParser warnings:');
+        for (const w of parserWarnings) {
+          console.warn(`  [${w.code}] ${w.message}`);
+        }
+      }
       console.log(`\nDry run — no LLM call made.`);
       return;
     }
@@ -114,12 +147,15 @@ program
   .option('-c, --config <path>', 'Path to config file')
   .option('-v, --verbose', 'Enable verbose logging')
   .option('--no-stream', 'Disable streaming output')
+  .option('--timeout <ms>', 'LLM request timeout in milliseconds')
+  .option('--max-tokens <n>', 'Maximum tokens for the LLM response')
   .action(async (file: string, options) => {
     if (options.verbose) setLogLevel('debug');
 
     const config = loadConfig(options.config);
     config.output.format = 'api';
     config.output.dir = options.output;
+    applyTimeoutAndMaxTokens(config, options);
 
     const progress = new Progress();
     progress.start('Parsing OpenAPI spec...');
@@ -142,12 +178,15 @@ program
   .option('-c, --config <path>', 'Path to config file')
   .option('-v, --verbose', 'Enable verbose logging')
   .option('--no-stream', 'Disable streaming output')
+  .option('--timeout <ms>', 'LLM request timeout in milliseconds')
+  .option('--max-tokens <n>', 'Maximum tokens for the LLM response')
   .action(async (file: string, options) => {
     if (options.verbose) setLogLevel('debug');
 
     const config = loadConfig(options.config);
     config.output.format = 'markdown';
     config.output.dir = options.output;
+    applyTimeoutAndMaxTokens(config, options);
 
     const progress = new Progress();
     progress.start('Parsing input...');
@@ -235,7 +274,10 @@ Examples:
 );
 
 program.parseAsync().catch((err: Error) => {
-  if (err.message.includes('API key')) {
+  if (err instanceof ContentTruncatedError) {
+    console.error(`\nContent truncated: ${err.message}`);
+    process.exit(1);
+  } else if (err.message.includes('API key')) {
     console.error(`\nConfiguration error: ${err.message}`);
     process.exit(1);
   } else if (err.message.includes('ENOENT')) {
