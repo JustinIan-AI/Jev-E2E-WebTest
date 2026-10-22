@@ -47,17 +47,17 @@ function assertReady(contract: Contract): void {
 /** 按未映射原因给出可操作指引：只允许落到封闭动作集 / identity / fixtures 声明，不开放叙述。 */
 const REASON_GUIDANCE: Record<string, string> = {
   'unmapped-precondition':
-    '前置状态不是可执行动作，请勿改写成点击/填写等步骤；请在 identity（身份与 credentials_ref）' +
-    '或 fixtures（仅声明、不触发数据准备）中表达该前置，或删除该叙述句。中期 setup 执行通道见 issue #12。',
+    '前置状态不是可执行动作，请勿改写成点击/填写等步骤；请在 identity（身份与 credentials_ref）'
+    + '或 fixtures（仅声明、不触发数据准备）中表达该前置，或删除该叙述句。中期 setup 执行通道见 issue #12。',
   'unmapped-action':
-    '请改写为封闭动作集内的步骤：打开/访问（navigate）、点击（click）、' +
-    '在“目标”中填写“值”（fill）、选择（select）、滚动（scroll）、等待（wait）；' +
-    '目标与值均加引号，目标写在值之前，目标只能是语义短语（不得含 selector/xpath/坐标）。',
+    '请改写为封闭动作集内的步骤：打开/访问（navigate）、点击（click）、'
+    + '在“目标”中填写“值”（fill）、选择（select）、滚动（scroll）、等待（wait）；'
+    + '目标与值均加引号，目标写在值之前，目标只能是语义短语（不得含 selector/xpath/坐标）。',
   'ambiguous-target':
     '步骤中引号片段过多、目标不唯一；请拆分为单一步骤，仅保留“目标”与“值”两个引号片段，不要让系统猜测目标。',
   'unrecognized-assertion':
-    '请改写为封闭 DOM 断言：应该看到“目标”（visible）、不应该看到（absent）、' +
-    '看到 <数量> 个（count）、值为（value）、勾选（checked）、URL 为（url）；目标需加引号。',
+    '请改写为封闭 DOM 断言：应该看到“目标”（visible）、不应该看到（absent）、'
+    + '看到 <数量> 个（count）、值为（value）、勾选（checked）、URL 为（url）、数量为（number）；目标需加引号。',
 };
 
 function guidanceFor(reason: string): string {
@@ -74,17 +74,17 @@ function draftDocument(mapped: MappedContract, featurePath: string): string {
     _draft: {
       status: 'needs-human-completion',
       source_feature: featurePath,
-      note: '存在无法自动映射的 Gherkin 步骤：前置状态请用 identity/fixtures 声明表达而非动作，' +
-        '动作与断言请改写为封闭集合内带引号的结构；按每条 unmapped_steps 的 guidance 补全后重命名为 .contract.yaml。',
+      note: '存在无法自动映射的 Gherkin 步骤：前置状态请用 identity/fixtures 声明表达而非动作，'
+        + '动作与断言请改写为封闭集合内带引号的结构；按每条 unmapped_steps 的 guidance 补全后重命名为 .contract.yaml。',
       unmapped_steps: unmappedSteps,
     },
     ...mapped.contract,
   };
   return (
-    '# DRAFT — 由 idwth init --from 生成，含未映射步骤，不可直接执行。\n' +
-    '# 补全 _draft.unmapped_steps 中列出的步骤后，删除本注释与 _draft 段，\n' +
-    '# 并将文件重命名为 *.contract.yaml，再运行 idwth validate。\n' +
-    stringifyYaml(draftObject, { lineWidth: 100 })
+    '# DRAFT — 由 idwth init --from 生成，含未映射步骤，不可直接执行。\n'
+    + '# 补全 _draft.unmapped_steps 中列出的步骤后，删除本注释与 _draft 段，\n'
+    + '# 并将文件重命名为 *.contract.yaml，再运行 idwth validate。\n'
+    + stringifyYaml(draftObject, { lineWidth: 100 })
   );
 }
 

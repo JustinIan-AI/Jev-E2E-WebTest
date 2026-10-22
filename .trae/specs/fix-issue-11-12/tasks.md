@@ -39,6 +39,8 @@
 ## T7 集成与门禁
 - [x] T7.1 新增集成用例：喂入 #11 复现 feature，断言映射/校验终态 【✅】（tests/integration/issue-11-repro.test.ts 1/1；fill 不颠倒、click/visible 剥引号、2 条 unmapped 带指引、无 ready 假落定）
 - [x] T7.2 `npm run typecheck && npm run lint && npm run build && npm run test` 全绿（记录测试文件/用例数） 【✅】（typecheck/lint/build exit 0；vitest 54 文件 / 623 用例全通过，相对基线 53/622 只增不减）
+- [x] T7.3 按 loopx-workflow 管线 B 规范化 Failing Repro：新增 `tests/unit/issues/issue-11.test.ts`（7 用例，AC2–AC5 + R7） 【✅】（在修复前基线 `6b4c153` 临时 worktree 上 6/7 失败取得先红证据；当前 HEAD 7/7 通过；全量 55 文件 / 630 用例全绿，测试数只增不减；集成守护 T7.1 保留）
+- [x] T7.4 管线 B 第 5 步 L1 独立审查闭环：AC1–AC9 逐条对账 + 红线核对，证据落盘 `l1-review-evidence.md` 【✅】（L1 发现并修复 2 处问题：init-from 指引补 `number` 原语、issue-11.test.ts 补 table/docString；修复后四大门禁复跑全绿 55/630；L1 结论 PASS）
 
 ## T8 评审 / 提交 / 收尾
 - [x] T8.1 T7 `loopx review-packet` 收集证据并独立评审 AC + 红线 【✅】（独立 code review：#11 五条 AC 全覆盖——封闭词汇表注入模板、fill target/value 不颠倒、click/visible 剥引号、≥3 引号片段 ambiguous-target 落 draft、623 全量含集成守护；红线：封闭动作集/DOM kind 未新增、R4 postcondition 顺序不变、零网络零模型、fixtures R3 递归覆盖、.codex/.loopx 已在 .gitignore）

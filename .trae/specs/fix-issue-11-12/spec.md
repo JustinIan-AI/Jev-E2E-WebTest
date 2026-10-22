@@ -8,7 +8,7 @@
 
 **纳入本次：**
 - #11-P0：`gherkin.template.ts` 注入封闭动词词汇表（生成端契约）。
-- #11-P1：`feature-to-contract.ts` 映射改「结构」——值取最后引号、target 取动词后引号内容并剥离引号、歧义（≥2 引号且目标不唯一）保持 unmapped（reason=`ambiguous-target`）、Then 侧取引号内容丢弃叙述框架。
+- #11-P1：`feature-to-contract.ts` 映射改「结构」——值取最后引号、target 取动词后引号内容并剥离引号、歧义（≥3 引号片段，target+value 之外仍有候选）保持 unmapped（reason=`ambiguous-target`）、Then 侧取引号内容丢弃叙述框架。
 - #11-P2：`unmapped-precondition` 提示改为可操作指引（不引入 setup 执行）。
 - #12 短期：`fixtures` 纳入与 identity 相同的敏感键校验（R3）；`instantiateFixtures` 标注 `@internal` 说明尚未接线；文档/help 诚实化（fixtures 不触发数据准备）。
 
@@ -30,7 +30,7 @@ export function extractLastQuoted(text: string): string | null;
 
 /** 目标文本 → R7 合法语义目标。
  *  不变量：
- *  - 剥离所有引号字符（“”"‘’）及选择器特征（# . // >> ()）；
+ *  - 剥离所有引号字符（“”"‘’）及选择器特征（# / // >> ()）；
  *  - 折叠空白且首尾无空白；
  *  - 输出为纯语义短语，可被 substring 匹配。 */
 export function sanitizeTarget(text: string): string;
@@ -46,7 +46,7 @@ export interface TargetValueParse {
 /** 解析「在"<目标>"…填写"<值>"」结构。
  *  不变量：
  *  - 恰好 2 个引号片段 → target=第一个片段内容、value=最后片段内容（二者可同）；
- *  - 引号片段 ≥2 且无法唯一确定目标（动词后存在多个候选目标片段）→ null
+ *  - 引号片段 ≥3（target+value 之外仍有候选，无法唯一确定目标）→ null
  *    （调用方记 reason='ambiguous-target'，绝不取第一个猜测）；
  *  - 引号片段 0 或 1（缺值或缺目标）→ null（调用方记 reason='unmapped-action'）。 */
 export function parseTargetValue(text: string, verb: RegExp): TargetValueParse | null;
@@ -82,7 +82,7 @@ export function instantiateFixtures(...): Record<string, string>;
 1. `gherkin.template.ts` 的 systemPrompt：含封闭动词集合（打开/访问、点击、输入/填写、选择、滚动、等待、应该看到/不应该看到）；要求目标与值均加引号且目标在值之前；禁止主语前缀；不再出现 `Use Background for shared setup steps`；禁止把「已登录/已存在」写成步骤。
 2. `在"用户名"输入框中填写"zhangsan"` → `target:'用户名'`、`value:'zhangsan'`（不得颠倒）。
 3. `点击"确定"按钮` → target 为 `确定按钮`（不含引号），可被 substring 匹配。
-4. 含歧义多引号（≥2 且目标不唯一）的步骤保持 draft，reason 为 `ambiguous-target`。
+4. 含歧义多引号（≥3 个引号片段：恰好 2 个为 target+value，第 3 个起目标不唯一）的步骤保持 draft，reason 为 `ambiguous-target`。
 5. `用户列表中显示"zhangsan"` → Then 断言取 `zhangsan` 作 target、丢弃叙述框架；句中无引号 → `unrecognized-assertion`。
 6. `fixtures` 中出现字面量凭据（敏感键 + 非引用值）→ `validate` 报 R3，与 identity 同规则；`cred://` / `@fixture` 引用值不报错。
 7. `instantiateFixtures` 带 `@internal` 注释；help/docs 明确 fixtures 仅声明、不触发数据准备。
