@@ -8,9 +8,9 @@ Feature: Account and Catalog
 
   @smoke
   Scenario: Operator logs in
-    Given I enter "operator@example.com" in the email field
-    And I enter "s3cret" in the password field
-    When I click the login submit button
+    Given fill in "email field" with "operator@example.com"
+    And fill in "password field" with "s3cret"
+    When click "login submit button"
     Then I should see the welcome banner
     And I should see 3 nav items
     But I should not see the login form
@@ -25,8 +25,8 @@ Feature: Account and Catalog
 
   @positive
   Scenario Outline: Search products
-    Given I enter "<keyword>" in the search box
-    When I click the search button
+    Given fill in "search box" with "<keyword>"
+    When click "search button"
     Then I should see <count> product cards
 
     Examples:

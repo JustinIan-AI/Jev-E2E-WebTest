@@ -12,7 +12,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseFeature } from '../../src/runtime/contract/gherkin-parse.js';
 import {
+  extractLastQuoted,
+  extractQuotedAll,
   mapFeatureToContracts,
+  parseTargetValue,
+  sanitizeTarget,
   type MapFeatureOptions,
 } from '../../src/runtime/contract/feature-to-contract.js';
 import { validateContract } from '../../src/runtime/contract/validate.js';
@@ -125,19 +129,30 @@ describe('mapFeatureToContracts — 动作映射', () => {
     expect(r!.contract.steps[0]).toMatchObject({ action: 'click', target: 'the dashboard menu' });
   });
 
-  it('fill 剥离动词与值，目标满足 R7（无选择器特征）', () => {
+  it('fill 取「目标引号 + 值引号」结构，目标满足 R7（无引号/选择器特征）', () => {
     const [r] = map(`
       Feature: T
       Scenario: S
-        When I enter "alice" in the username field
+        When fill in "username field" with "alice"
         Then I should see the title
     `);
     const fill = r!.contract.steps[0]!;
-    expect(fill).toMatchObject({ action: 'fill', target: 'the username field', value: 'alice' });
-    expect(fill.target).not.toMatch(/[#.]|\/\/|>>|\(\)/);
+    expect(fill).toMatchObject({ action: 'fill', target: 'username field', value: 'alice' });
+    expect(fill.target).not.toMatch(/["“”‘’#]|\/\/|>>|\(\)/);
   });
 
-  it('fill 缺引号值或目标时降级 draft', () => {
+  it('fill 只有一个引号（缺目标或缺值）时降级 draft：unmapped-action', () => {
+    const [r] = map(`
+      Feature: T
+      Scenario: S
+        When fill in "alice"
+        Then I should see the title
+    `);
+    expect(r!.status).toBe('draft');
+    expect(r!.unmappedSteps[0]!.reason).toBe('unmapped-action');
+  });
+
+  it('fill 无引号时降级 draft：unmapped-action', () => {
     const [r] = map(`
       Feature: T
       Scenario: S
@@ -148,16 +163,16 @@ describe('mapFeatureToContracts — 动作映射', () => {
     expect(r!.unmappedSteps[0]!.reason).toBe('unmapped-action');
   });
 
-  it('select 带引号值', () => {
+  it('select 取「目标引号 + 值引号」结构', () => {
     const [r] = map(`
       Feature: T
       Scenario: S
-        When I select "admin" from the role dropdown
+        When select "role dropdown" with "admin"
         Then I should see the title
     `);
     expect(r!.contract.steps[0]).toMatchObject({
       action: 'select',
-      target: 'from the role dropdown',
+      target: 'role dropdown',
       value: 'admin',
     });
   });
@@ -284,15 +299,15 @@ describe('mapFeatureToContracts — 选项与中文', () => {
     const feature = parseFeature(`
       Feature: T
       Scenario: 登录
-        When 输入“张三”到用户名输入框
-        And 点击提交按钮
+        When 在“用户名输入框”中填写“张三”
+        And 点击“提交按钮”
         Then 应该看到欢迎横幅
     `);
     const [cn] = mapFeatureToContracts(feature, OPTIONS);
     expect(cn!.status).toBe('ready');
     expect(cn!.contract.steps[0]).toMatchObject({
       action: 'fill',
-      target: '到用户名输入框',
+      target: '用户名输入框',
       value: '张三',
     });
     expect(cn!.contract.steps[1]).toMatchObject({ action: 'click', target: '提交按钮' });
@@ -343,5 +358,102 @@ describe('mapFeatureToContracts — 选项与中文', () => {
     `);
     expect(r!.contract.environment.base_url).toBe(OPTIONS.baseUrl);
     expect(r!.contract.identity.credentials_ref).toBe(OPTIONS.credentialsRef);
+  });
+});
+
+describe('#11-P1 引号结构工具函数', () => {
+  it('extractQuotedAll 提取全部引号片段（中英文引号统一、不含引号字符）', () => {
+    expect(extractQuotedAll('在“用户名”输入框中填写"zhangsan"')).toEqual(['用户名', 'zhangsan']);
+    expect(extractQuotedAll('no quotes here')).toEqual([]);
+  });
+
+  it('extractLastQuoted 恒等于 extractQuotedAll(...).at(-1)', () => {
+    const text = 'fill in "a" with "b" and "c"';
+    expect(extractLastQuoted(text)).toBe(extractQuotedAll(text).at(-1)!);
+    expect(extractLastQuoted('plain')).toBeNull();
+  });
+
+  it('sanitizeTarget 剥离所有引号字符与选择器特征并折叠空白', () => {
+    expect(sanitizeTarget('点击“确 定”按钮')).toBe('点击确 定按钮'.replace(/\s+/g, ' ').trim());
+    expect(sanitizeTarget('“确定”按钮')).toBe('确定按钮');
+    expect(sanitizeTarget('a#b >> c()')).toBe('a b c');
+  });
+
+  it('parseTargetValue 恰好 2 片段 → 第一片段为目标、末片段为值', () => {
+    expect(parseTargetValue('在“用户名”输入框中填写“zhangsan”', /填写/)).toEqual({
+      target: '用户名',
+      value: 'zhangsan',
+    });
+  });
+
+  it('parseTargetValue 仅 0/1 片段 → null（缺目标或缺值）', () => {
+    expect(parseTargetValue('填写一个没有引号的东西', /填写/)).toBeNull();
+    expect(parseTargetValue('填写“zhangsan”', /填写/)).toBeNull();
+  });
+
+  it('parseTargetValue ≥3 片段（目标不唯一）→ null（歧义，禁止猜第一个）', () => {
+    expect(parseTargetValue('在“甲”和“乙”中填写“zhangsan”', /填写/)).toBeNull();
+  });
+});
+
+describe('#11-P1 中文双引号结构化映射', () => {
+  it('在"用户名"输入框中填写"zhangsan" → target=用户名 / value=zhangsan（不颠倒）', () => {
+    const [r] = map(`
+      Feature: T
+      Scenario: S
+        When 在“用户名”输入框中填写“zhangsan”
+        Then 应该看到首页
+    `);
+    expect(r!.contract.steps[0]).toMatchObject({
+      action: 'fill',
+      target: '用户名',
+      value: 'zhangsan',
+    });
+  });
+
+  it('点击"确定"按钮 → target=确定按钮（不含引号）', () => {
+    const [r] = map(`
+      Feature: T
+      Scenario: S
+        When 点击“确定”按钮
+        Then 应该看到结果
+    `);
+    expect(r!.contract.steps[0]).toMatchObject({ action: 'click', target: '确定按钮' });
+    expect(r!.contract.steps[0]!.target).not.toMatch(/[“”"‘’]/);
+  });
+
+  it('歧义多引号（≥2 且目标不唯一）→ draft + ambiguous-target', () => {
+    const [r] = map(`
+      Feature: T
+      Scenario: S
+        When 在“甲”和“乙”中填写“zhangsan”
+        Then 应该看到结果
+    `);
+    expect(r!.status).toBe('draft');
+    expect(r!.unmappedSteps[0]!.reason).toBe('ambiguous-target');
+  });
+
+  it('Then 用户列表中显示"zhangsan" → visible target=zhangsan（丢弃叙述框架）', () => {
+    const [r] = map(`
+      Feature: T
+      Scenario: S
+        When 点击“查询按钮”
+        Then 用户列表中显示“zhangsan”
+    `);
+    expect(r!.contract.assertions.dom[0]).toEqual({ kind: 'visible', target: 'zhangsan' });
+  });
+
+  it('Then 显示句无引号 → unrecognized-assertion', () => {
+    const [r] = map(`
+      Feature: T
+      Scenario: S
+        When 点击“查询按钮”
+        Then 用户列表中显示张三
+    `);
+    expect(r!.status).toBe('draft');
+    expect(r!.unmappedSteps[0]!).toMatchObject({
+      keyword: 'Then',
+      reason: 'unrecognized-assertion',
+    });
   });
 });

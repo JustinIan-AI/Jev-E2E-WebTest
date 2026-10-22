@@ -409,7 +409,7 @@ export function completeDraft(input: {
         appendCandidate(candidateQueue.shift());
       } else {
         const baseline = mapStep(raw);
-        if (baseline !== null) {
+        if ('step' in baseline) {
           contractSteps.push(baseline.step);
           continue;
         }

@@ -244,10 +244,10 @@ describe('completeDraft - F1-2 顺序重映射与数量守恒', () => {
   const multiStepFeature = `
 Feature: User Sessions
   Background:
-    Given I navigate to "https://example.com/settings"
-    When I enter "admin" into "username"
+    Given I navigate to https://example.com/settings
+    When fill in "username" with "admin"
   Scenario: Cleanup sessions
-    When I click "Session Manager"
+    When click "Session Manager"
     And I terminate all active sessions
     Then the session risk badge is cleared
     And I should see "Done"
@@ -295,7 +295,7 @@ Feature: User Sessions
     expect(completed.steps[0]?.action).toBe('navigate');
     expect(completed.steps[1]?.action).toBe('fill');
     expect(completed.steps[2]?.action).toBe('click');
-    expect(completed.steps[2]?.target).toBe('"Session Manager"');
+    expect(completed.steps[2]?.target).toBe('Session Manager');
     expect(completed.steps[3]?.action).toBe('click');
     expect(completed.steps[3]?.intent).toBe('I terminate all active sessions');
     expect(completed.steps[3]?.risk).toBe('irreversible');
