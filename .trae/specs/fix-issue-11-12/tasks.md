@@ -42,5 +42,5 @@
 
 ## T8 评审 / 提交 / 收尾
 - [x] T8.1 T7 `loopx review-packet` 收集证据并独立评审 AC + 红线 【✅】（独立 code review：#11 五条 AC 全覆盖——封闭词汇表注入模板、fill target/value 不颠倒、click/visible 剥引号、≥3 引号片段 ambiguous-target 落 draft、623 全量含集成守护；红线：封闭动作集/DOM kind 未新增、R4 postcondition 顺序不变、零网络零模型、fixtures R3 递归覆盖、.codex/.loopx 已在 .gitignore）
-- [ ] T8.2 GitHub MCP 在 `feature/fix-issue-11-12` 分支提交并创建 PR（不直推 main） 【 】
-- [ ] T8.3 在 #11/#12 回链 PR；`loopx goal-lifecycle stop` 收尾 【 】
+- [x] T8.2 GitHub MCP 在 `feature/fix-issue-11-12` 分支提交并创建 PR（不直推 main） 【✅】（16 个文件分 10 次提交推送；本地/远端逐文件 SHA256 账实一致；PR #15：https://github.comJustinIan-AI/Jev-E2E-WebTest/pull/15；MCP token 缺 PR/评论写 scope，PR 与 issue 评论按预案用本机 `gh` 兜底，代码提交全程以 MCP 为主）
+- [x] T8.3 在 #11/#12 回链 PR；`loopx goal-lifecycle stop` 收尾 【✅】（#11 回链 issuecomment-6321025197、#12 回链 issuecomment-6321025901，均 `gh` 兜底；T8 todo 经 deliverable-complete→refresh-state（validated_progress/semantic_closeout）→spend-slot→terminal no-follow-up closeout 四步结算，receipt=tcw_16035392；goal active→stopped，readback verified；lease 已 release；无残余风险）
