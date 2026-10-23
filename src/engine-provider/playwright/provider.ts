@@ -238,6 +238,17 @@ export class PlaywrightProvider implements EngineProvider {
     const handle = (await locator
       .elementHandle({ timeout: 2_000 })
       .catch(() => null)) as unknown as NodeAnchor | null;
+    if (handle) {
+      if (!this.lastObservationId) {
+        this.lastObservationId = `obs-${Date.now()}`;
+      }
+      const obsId = this.lastObservationId;
+      await (handle as unknown as { evaluate: (fn: (el: any, id: string) => void, arg: string) => Promise<void> })
+        .evaluate((el: any, id: string) => {
+          el.setAttribute('data-observation-id', id);
+        }, obsId)
+        .catch(() => null);
+    }
     this.elementRegistry.set(elementId, {
       page,
       locator,
@@ -465,6 +476,7 @@ export class PlaywrightProvider implements EngineProvider {
             timeout: this.actionTimeoutMs,
           });
           this.active = page;
+          this.lastObservationId = `obs-${Date.now()}`;
           return { kind: 'navigate', status: 'ok', dispatched: true };
         } catch (err) {
           return {
