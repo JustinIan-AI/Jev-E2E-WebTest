@@ -119,14 +119,17 @@ describe('mapFeatureToContracts — 动作映射', () => {
     });
   });
 
-  it('navigate 无 URL 时降级为 click 语义目标', () => {
+  it('navigate 无 URL 时不静默降级为 click，安全降级为 draft (unmapped-navigation)', () => {
     const [r] = map(`
       Feature: T
       Scenario: S
         Given I open the dashboard menu
         Then I should see the title
     `);
-    expect(r!.contract.steps[0]).toMatchObject({ action: 'click', target: 'the dashboard menu' });
+    expect(r!.status).toBe('draft');
+    expect(r!.unmappedSteps).toEqual([
+      { keyword: 'Given', text: 'I open the dashboard menu', reason: 'unmapped-navigation' },
+    ]);
   });
 
   it('fill 取「目标引号 + 值引号」结构，目标满足 R7（无引号/选择器特征）', () => {
