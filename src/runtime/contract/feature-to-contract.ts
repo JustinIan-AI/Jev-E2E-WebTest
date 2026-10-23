@@ -241,6 +241,11 @@ export function mapStep(raw: ParsedStep): MapStepResult {
 // Then 断言映射
 // ---------------------------------------------------------------------------
 
+const ASSERT_ONLY_PREFIX = /^(?:assert\s+only\b|断言(?:仅|只)?)/i;
+const URL_ASSERT_PATTERN =
+  /^(?:current\s+url\s+is|url\s+is|当前(?:页面)?(?:地址|url|网址)[是为])/i;
+const NUMBER_EXTRACT_PATTERN = /(?:number\s+is|数值[为是]|数字[为是])\s*(\d+)/i;
+
 const SHOULD_SEE_PATTERN =
   /^(?:I\s+)?(?:should\s+see|see|can\s+see)\b|(?:应该看到|应当看到|能看到|看到|显示|展示)/i;
 const SHOULD_NOT_SEE_PATTERN =
@@ -253,7 +258,113 @@ const DISPLAY_PATTERN = /显示|展示/;
 export function mapThenStep(raw: ParsedStep): StepMapping | null {
   const text = raw.text.trim();
 
-  // should not see ...
+  // 1. URL 断言 (如 current url is "..." / 当前地址是 "...")
+  if (URL_ASSERT_PATTERN.test(text) || (ASSERT_ONLY_PREFIX.test(text) && /\burl\b|地址|网址/i.test(text))) {
+    const quoted = extractQuotedAll(text);
+    const expected = quoted[0] ?? URL_PATTERN.exec(text)?.[0];
+    if (expected && expected.length > 0) {
+      return {
+        step: { intent: text, action: 'assert_only', risk: 'reversible' },
+        assertion: { kind: 'url', expected },
+      };
+    }
+    return null;
+  }
+
+  // 2. 动作式断言 (assert only "X" is [not ]visible / is checked / is "val" / number is N)
+  if (ASSERT_ONLY_PREFIX.test(text)) {
+    const quoted = extractQuotedAll(text);
+    // 2.1 assert only "target" is "value" 或 assert only "target" value is "value"
+    if (quoted.length === 2) {
+      const target = sanitizeTarget(quoted[0]!);
+      const expected = quoted[1]!;
+      if (target.length === 0) return null;
+      return {
+        step: { intent: text, action: 'assert_only', risk: 'reversible' },
+        assertion: { kind: 'value', target, expected },
+      };
+    }
+
+    if (quoted.length === 1) {
+      const target = sanitizeTarget(quoted[0]!);
+      if (target.length === 0) return null;
+
+      // 2.2 checked 断言
+      if (/\bchecked\b|勾选/i.test(text)) {
+        const isNot = /\bnot\b|未/i.test(text);
+        return {
+          step: { intent: text, action: 'assert_only', risk: 'reversible' },
+          assertion: { kind: 'checked', target, expected: !isNot },
+        };
+      }
+
+      // 2.3 number 断言
+      const numMatch = NUMBER_EXTRACT_PATTERN.exec(text);
+      if (numMatch) {
+        const expected = Number(numMatch[1]);
+        return {
+          step: { intent: text, action: 'assert_only', risk: 'reversible' },
+          assertion: { kind: 'number', target, expected },
+        };
+      }
+
+      // 2.4 absent 断言 (is not visible / is absent / 不可见)
+      if (/\b(?:not\s+visible|absent)\b|不可见/i.test(text)) {
+        return {
+          step: { intent: text, action: 'assert_only', risk: 'reversible' },
+          assertion: { kind: 'absent', target },
+        };
+      }
+
+      // 2.5 visible 断言 (is visible / 可见)
+      if (/\bvisible\b|可见/i.test(text)) {
+        return {
+          step: { intent: text, action: 'assert_only', risk: 'reversible' },
+          assertion: { kind: 'visible', target },
+        };
+      }
+    }
+  }
+
+  // 3. 结构化 value 断言 (如 "用户名输入框" 的值为 "admin")
+  const quoted = extractQuotedAll(text);
+  if (quoted.length === 2 && /(?:的值[是为]|value\s+is)/i.test(text)) {
+    const target = sanitizeTarget(quoted[0]!);
+    const expected = quoted[1]!;
+    if (target.length > 0) {
+      return {
+        step: { intent: text, action: 'assert_only', risk: 'reversible' },
+        assertion: { kind: 'value', target, expected },
+      };
+    }
+  }
+
+  // 4. 结构化 checked 断言 (如 "记住密码" 已勾选 / 未勾选)
+  if (quoted.length === 1 && /(?:已勾选|未勾选|\bis\s+checked\b|\bis\s+not\s+checked\b)/i.test(text)) {
+    const target = sanitizeTarget(quoted[0]!);
+    if (target.length > 0) {
+      const isNot = /(?:未勾选|\bnot\b)/i.test(text);
+      return {
+        step: { intent: text, action: 'assert_only', risk: 'reversible' },
+        assertion: { kind: 'checked', target, expected: !isNot },
+      };
+    }
+  }
+
+  // 5. 结构化 number 断言 (如 "商品库存" 的数值为 99)
+  if (quoted.length === 1 && NUMBER_EXTRACT_PATTERN.test(text)) {
+    const target = sanitizeTarget(quoted[0]!);
+    const numMatch = NUMBER_EXTRACT_PATTERN.exec(text);
+    if (target.length > 0 && numMatch) {
+      const expected = Number(numMatch[1]);
+      return {
+        step: { intent: text, action: 'assert_only', risk: 'reversible' },
+        assertion: { kind: 'number', target, expected },
+      };
+    }
+  }
+
+  // 6. 原有叙述句式：should not see ...
   if (SHOULD_NOT_SEE_PATTERN.test(text)) {
     const target = sanitizeTarget(text.replace(SHOULD_NOT_SEE_PATTERN, '').trim());
     if (target.length === 0) return null;
@@ -264,9 +375,8 @@ export function mapThenStep(raw: ParsedStep): StepMapping | null {
     };
   }
 
-  // 中文「显示/展示」句：丢弃叙述框架，取引号内容；无引号/多引号不可安全落定。
+  // 7. 原有叙述句式：中文「显示/展示」句：丢弃叙述框架，取引号内容
   if (DISPLAY_PATTERN.test(text)) {
-    const quoted = extractQuotedAll(text);
     if (quoted.length !== 1) return null;
     const target = sanitizeTarget(quoted[0]!);
     if (target.length === 0) return null;
@@ -276,7 +386,7 @@ export function mapThenStep(raw: ParsedStep): StepMapping | null {
     };
   }
 
-  // should see [N] <target>
+  // 8. 原有叙述句式：should see [N] <target>
   if (SHOULD_SEE_PATTERN.test(text)) {
     const rest = text.replace(SHOULD_SEE_PATTERN, '').trim();
     const countMatch = COUNT_PATTERN.exec(rest);
