@@ -37,5 +37,5 @@ export class PlaywrightProvider {
   - 预期结果：【✅】审查通过（PASS / READY_FOR_PR），先红后绿证据齐全，7 大红线无违规，四大门禁全绿（56 files, 633 tests passed）。
 - [ ] **B5-1**: GitHub MCP 提交并创建 PR，注入 `loopx-meta`
   - 通过 GitHub MCP 创建分支与提交，建立 PR，运行 `loopx pr-review` 输出 L2 审查报告。
-- [ ] **B6-1**: 执行 8 项审批清单核验，合入 PR 并完成收尾
-  - Squash & Merge 合入 main，确认 Issue #18 自动关闭，执行 `loopx goal-lifecycle --operation stop`。
+- [x] **B6-1**: 执行 8 项审批清单核验，合入 PR 并完成收尾
+  - 预期结果：【✅】PR #19 经 Squash & Merge 成功合入 main（commit `7eb7992c09e361a8ff57849e5d18518005719ee1`），Issue #18 联动核销关闭（state: CLOSED），四大质量门禁全绿（56 files, 633 passed，0 回归）。
