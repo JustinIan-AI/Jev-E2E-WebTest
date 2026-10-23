@@ -114,8 +114,8 @@ export interface StepMapping {
   assertion?: Record<string, unknown>;
 }
 
-/** fill/select 无法结构化时的失败原因。 */
-export type TargetValueFailure = 'unmapped-action' | 'ambiguous-target';
+/** fill/select/navigate 无法结构化时的失败原因。 */
+export type TargetValueFailure = 'unmapped-action' | 'ambiguous-target' | 'unmapped-navigation';
 
 /**
  * 尝试解析「目标 + 值」；失败时返回原因：
@@ -174,13 +174,8 @@ export function mapStep(raw: ParsedStep): MapStepResult {
         step: { intent: text, action: 'navigate', url, risk: 'reversible' },
       };
     }
-    const target = sanitizeTarget(text.replace(NAVIGATE_PATTERN, '').trim());
-    if (target.length > 0) {
-      return {
-        step: { intent: text, action: 'click', target, risk: 'reversible' },
-      };
-    }
-    return { reason: 'unmapped-action' };
+    // Issue #17: navigate 缺 URL 严禁静默降级为 click，返回明确的 unmapped-navigation
+    return { reason: 'unmapped-navigation' };
   }
 
   // --- fill / type：目标引号 + 值引号结构化 ---
@@ -488,9 +483,11 @@ function mapOneScenario(
         reason:
           mapped.reason === 'ambiguous-target'
             ? 'ambiguous-target'
-            : raw.keyword === 'Given'
-              ? 'unmapped-precondition'
-              : 'unmapped-action',
+            : mapped.reason === 'unmapped-navigation'
+              ? 'unmapped-navigation'
+              : raw.keyword === 'Given'
+                ? 'unmapped-precondition'
+                : 'unmapped-action',
       });
       continue;
     }
