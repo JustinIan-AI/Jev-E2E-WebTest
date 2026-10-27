@@ -21,3 +21,10 @@ coverage/
 # LoopX / Codex local runtime state
 .codex/
 .loopx/
+
+# Development process artifacts & local memory
+.trae/
+.workbuddy/
+
+# Promotional / research material
+20260922-jev-bs-e2e-research/
