@@ -459,6 +459,8 @@ function mapOneScenario(
   const allSteps = [...feature.background, ...input.steps];
   const contractSteps: ContractStep[] = [];
   const domAssertions: Array<Record<string, unknown>> = [];
+  // 每条断言所在的 contract step 位置（assert_only 步骤下标），供 R4 判定断言归属。
+  const assertionOrigins: number[] = [];
   const unmapped: UnmappedStepRecord[] = [];
 
   for (let i = 0; i < allSteps.length; i++) {
@@ -470,8 +472,12 @@ function mapOneScenario(
         unmapped.push({ keyword: raw.keyword, text: raw.text, reason: 'unrecognized-assertion' });
         continue;
       }
+      const origin = contractSteps.length;
       contractSteps.push(mapped.step);
-      if (mapped.assertion) domAssertions.push(mapped.assertion);
+      if (mapped.assertion) {
+        domAssertions.push(mapped.assertion);
+        assertionOrigins.push(origin);
+      }
       continue;
     }
 
@@ -494,14 +500,27 @@ function mapOneScenario(
     contractSteps.push(mapped.step);
   }
 
-  // R4 收尾：仍为 irreversible 的步骤必须带 postcondition。
-  // 取其后最近一条断言作为 postcondition；取不到则降级为可逆（保守，不阻断）。
-  contractSteps.forEach((step, i) => {
-    if (step.risk !== 'irreversible') return;
+  // R4 收尾（Issue #26 重写）：irreversible 步骤的 postcondition 必须是【专属】断言——
+  // 严格位于其后、且先于下一个 irreversible 步骤的最近一条断言；取不到则降级为
+  // 可逆（保守，不阻断）。多条 irreversible 步骤共享同一组末尾断言时（标准 CRUD
+  // happy-path：新建 → 填写 → 创建 → Then），末尾断言只对最后一个 irreversible
+  // （真正落库的动作）成立；挂在更早的步骤上必然失败 → BLOCKED(postcondition)，
+  // 因此更早的 irreversible 步骤全部降级 reversible。
+  const irreversibleIndexes = contractSteps
+    .map((s, i) => (s.risk === 'irreversible' ? i : -1))
+    .filter((i) => i >= 0);
+
+  irreversibleIndexes.forEach((stepIndex, k) => {
+    const step = contractSteps[stepIndex]!;
     if (step.postcondition !== undefined && step.postcondition.length > 0) return;
-    const followingAssertion = domAssertions[0];
-    if (followingAssertion) {
-      step.postcondition = [followingAssertion];
+    const nextIrreversible = irreversibleIndexes[k + 1];
+    // 专属断言：位于本步之后、且先于下一个 irreversible 步骤的最近一条。
+    const exclusiveIndex = assertionOrigins.findIndex(
+      (origin) =>
+        origin > stepIndex && (nextIrreversible === undefined || origin < nextIrreversible),
+    );
+    if (exclusiveIndex >= 0) {
+      step.postcondition = [domAssertions[exclusiveIndex]!];
     } else {
       step.risk = 'reversible';
     }
