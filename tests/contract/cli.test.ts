@@ -32,6 +32,21 @@ const REPO_ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
 const CLI_ENTRY = path.join(REPO_ROOT, 'src/cli/index.ts');
 const execFileP = promisify(execFile);
 
+/**
+ * 真子进程用例的耗时预算（不是延迟断言，见下）。
+ *
+ * 实测（10 核 macOS，全量 62 文件并发、其中多个用例在跑真实 Chromium）：
+ *   node --import tsx src/cli/index.ts --version  → 6.8s / 7.2s
+ *   ... validate <file>                           → 7.8s / 8.9s
+ * 同命令单独跑只要 ~1.2s —— 差额全部是 CPU 争抢。成本来源是 tsx 冷启动 +
+ * 编译整棵 TS 依赖图 + 加载 playwright，与被断言的行为（退出码）无关。
+ *
+ * vitest 默认 5s 在这里等价于给「进程启动延迟」设了一条隐式闸门，
+ * 导致全量跑随机红 1~2 条、且每次红的不是同一条。取 3× 实测 p95：
+ * 既留足抖动空间，真实挂死（而不是变慢）仍会显式失败。
+ */
+const SUBPROCESS_TEST_TIMEOUT_MS = 30_000;
+
 /** 合法 Contract 基线（九条校验全部满足）。 */
 const validContract = {
   version: '1',
@@ -603,19 +618,27 @@ describe('AC-13 / TR-10.1 — CLI 命令矩阵退出码', () => {
   });
 
   describe('进程级退出码（真实子进程）', () => {
-    it('idwth --version 进程退出码为 0', async () => {
-      const { code } = await spawnCli(['--version']);
-      expect(code).toBe(0);
-    });
+    it(
+      'idwth --version 进程退出码为 0',
+      async () => {
+        const { code } = await spawnCli(['--version']);
+        expect(code).toBe(0);
+      },
+      SUBPROCESS_TEST_TIMEOUT_MS,
+    );
 
-    it('idwth validate 非法契约进程退出码为 3', async () => {
-      const cwd = await newTmpDir();
-      CLEANUP.push(cwd);
-      const bad = { ...validContract, goal: '' };
-      const file = await writeContract(cwd, 'bad.yaml', bad);
-      const { code } = await spawnCli(['validate', file]);
-      expect(code).toBe(3);
-    });
+    it(
+      'idwth validate 非法契约进程退出码为 3',
+      async () => {
+        const cwd = await newTmpDir();
+        CLEANUP.push(cwd);
+        const bad = { ...validContract, goal: '' };
+        const file = await writeContract(cwd, 'bad.yaml', bad);
+        const { code } = await spawnCli(['validate', file]);
+        expect(code).toBe(3);
+      },
+      SUBPROCESS_TEST_TIMEOUT_MS,
+    );
   });
 });
 
@@ -623,10 +646,18 @@ async function spawnCli(args: readonly string[]): Promise<{ code: number | null 
   try {
     await execFileP(process.execPath, ['--import', 'tsx', CLI_ENTRY, ...args], {
       cwd: REPO_ROOT,
+      // 子进程级硬超时：真挂死时由 execFile 杀掉并给出可读错误，
+      // 而不是让 vitest 的用例超时把「挂死」和「变慢」混成同一种红。
+      timeout: SUBPROCESS_TEST_TIMEOUT_MS,
     });
     return { code: 0 };
   } catch (error) {
-    const e = error as { code?: number | null };
+    const e = error as { code?: number | null; killed?: boolean; signal?: string };
+    if (e.killed === true) {
+      throw new Error(
+        `CLI 子进程超过 ${SUBPROCESS_TEST_TIMEOUT_MS}ms 未退出（signal=${e.signal ?? 'unknown'}）`,
+      );
+    }
     return { code: e.code ?? null };
   }
 }
