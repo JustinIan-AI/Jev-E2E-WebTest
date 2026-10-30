@@ -64,7 +64,9 @@ export interface MappedContract {
 }
 
 // --- 英文 / 中文引号统一取值（解析器只识别英文关键字，步骤文本可中文） ---
-const QUOTED_PATTERN = /[“"‘']([^”"‘']+)[”"‘']/g;
+// Issue #23: 捕获组用 * 允许空串 —— `fill "X" with ""` 是必填校验负向用例的
+// 标配句式，空引号必须作为合法 value（运行时 fill('') = 清空输入框）。
+const QUOTED_PATTERN = /[“"‘']([^”"‘']*)[”"‘']/g;
 
 /** 提取步骤文本中【全部】引号片段，按出现顺序返回；片段不含引号字符本身。 */
 export function extractQuotedAll(text: string): string[] {
@@ -94,13 +96,17 @@ export interface TargetValueParse {
 
 /**
  * 解析「在"<目标>"…填写"<值>"」结构：
- * - 恰好 2 个引号片段 → target=第一片段、value=末片段；
+ * - 恰好 2 个引号片段 → target=第一片段、value=末片段（value 允许空串，
+ *   见 Issue #23：`fill "X" with ""` = 清空输入框）；
+ * - target 为空串（如 `fill "" with "x"` / `click ""`）→ null，绝不猜测；
  * - 0/1 片段（缺目标或缺值）或 ≥3 片段（目标不唯一）→ null，绝不猜测。
  */
 export function parseTargetValue(text: string, verb: RegExp): TargetValueParse | null {
   if (!verb.test(text)) return null;
   const parts = extractQuotedAll(text);
   if (parts.length !== 2) return null;
+  // Issue #23 守卫：空值合法（清空语义），空目标非法。
+  if (parts[0]!.length === 0) return null;
   return { target: parts[0]!, value: parts[1]! };
 }
 
