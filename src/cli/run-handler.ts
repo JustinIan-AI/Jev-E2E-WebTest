@@ -55,6 +55,11 @@ export interface ConnectProviderInput {
   cdpEndpoint: string;
   originsAllowlist: string[];
   actionTimeoutMs?: number;
+  /** Issue #24：SUT 适配提供的应用就绪标志。 */
+  appReadySelector?: string;
+  appReadyTimeoutMs?: number;
+  resolvePollMaxMs?: number;
+  resolvePollIntervalMs?: number;
 }
 
 export type ConnectProvider = (input: ConnectProviderInput) => Promise<
@@ -90,6 +95,14 @@ interface ContractView {
     base_url: string;
     origins_allowlist?: string[];
     action_timeout_ms?: number;
+    /** Issue #24：SUT 适配项 —— 应用就绪标志（如 `#root .ant-layout`）。 */
+    app_ready_selector?: string;
+    /** Issue #24：就绪门超时（ms），默认 10000。 */
+    app_ready_timeout_ms?: number;
+    /** Issue #24：L1 miss 轮询窗口（ms），默认 5000；0 = 关闭。 */
+    resolve_poll_max_ms?: number;
+    /** Issue #24：轮询间隔（ms），默认 250。 */
+    resolve_poll_interval_ms?: number;
   };
   goal: string;
   steps: ContractStepView[];
@@ -253,6 +266,19 @@ export function createRunHandler(options: RunHandlerOptions = {}): (ctx: RunCont
         ...(input.actionTimeoutMs !== undefined
           ? { actionTimeoutMs: input.actionTimeoutMs }
           : {}),
+        // Issue #24：就绪门 / 轮询配置（SUT 适配提供，缺省走 provider 默认值）。
+        ...(input.appReadySelector !== undefined
+          ? { appReadySelector: input.appReadySelector }
+          : {}),
+        ...(input.appReadyTimeoutMs !== undefined
+          ? { appReadyTimeoutMs: input.appReadyTimeoutMs }
+          : {}),
+        ...(input.resolvePollMaxMs !== undefined
+          ? { resolvePollMaxMs: input.resolvePollMaxMs }
+          : {}),
+        ...(input.resolvePollIntervalMs !== undefined
+          ? { resolvePollIntervalMs: input.resolvePollIntervalMs }
+          : {}),
       }));
 
   return async function runHandler(ctx: RunContext): Promise<ExitCode> {
@@ -273,6 +299,19 @@ export function createRunHandler(options: RunHandlerOptions = {}): (ctx: RunCont
         originsAllowlist,
         ...(contract.environment.action_timeout_ms !== undefined
           ? { actionTimeoutMs: contract.environment.action_timeout_ms }
+          : {}),
+        // Issue #24：SUT 适配的就绪门 / 轮询配置（缺省由 provider 决定）。
+        ...(contract.environment.app_ready_selector !== undefined
+          ? { appReadySelector: contract.environment.app_ready_selector }
+          : {}),
+        ...(contract.environment.app_ready_timeout_ms !== undefined
+          ? { appReadyTimeoutMs: contract.environment.app_ready_timeout_ms }
+          : {}),
+        ...(contract.environment.resolve_poll_max_ms !== undefined
+          ? { resolvePollMaxMs: contract.environment.resolve_poll_max_ms }
+          : {}),
+        ...(contract.environment.resolve_poll_interval_ms !== undefined
+          ? { resolvePollIntervalMs: contract.environment.resolve_poll_interval_ms }
           : {}),
       });
     } catch (error) {
@@ -352,7 +391,9 @@ export function createRunHandler(options: RunHandlerOptions = {}): (ctx: RunCont
         caseResult.status === 'blocked' ? 'BLOCKED' : judgeResult.verdict;
       const failureReason =
         caseResult.status === 'blocked'
-          ? `执行受阻：${caseResult.reason}`
+          ? `执行受阻：${caseResult.reason}${
+              caseResult.reasonDetail ? `（${caseResult.reasonDetail}）` : ''
+            }`
           : failureReasonOf(verdict, assertionResultsOf(assertions, judgeResult), judgeResult.blockedReason);
 
       // ⑥ 截图归档（非致命：截图失败不改变 verdict 与证据三件套）。

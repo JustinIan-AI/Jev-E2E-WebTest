@@ -72,12 +72,16 @@ export type BlockReason =
   | 'postcondition'
   | 'recovery'
   | 'env'
-  | 'evidence';
+  | 'evidence'
+  /** Issue #24：navigate 后应用未挂载（就绪门超时）——环境未就绪，快速失败。 */
+  | 'app_not_mounted';
 
 /** 单形态结果：completed 时无 reason；blocked 时必须携带唯一原因码。 */
 export interface CaseResult {
   status: 'completed' | 'blocked';
   reason?: BlockReason;
+  /** 受阻原因的可读明细（如 app_not_mounted 的 selector 与等待秒数）。 */
+  reasonDetail?: string;
   /** Task 12：L3 决策审计（状态/拒绝原因/usage/latency）；仅发生决策尝试时携带。 */
   decisions?: DecisionRecord[];
   /** Task 13：Recovery 审计（attempt/mode/before-after 快照）；仅发生恢复时携带。 */
@@ -143,6 +147,11 @@ export function classifyFailure(
     case 'nav_blocked':
       return { recoverable: false, blockReason: 'env' };
     case 'timeout':
+      // Issue #24：navigate 的应用就绪门超时 —— 页面已加载但应用未挂载，
+      // 属环境未就绪（不是 mutation 结果未知），不得 recovery（重试只会白等）。
+      if (ar.kind === 'navigate' && ar.errorCode === 'app_not_mounted') {
+        return { recoverable: false, blockReason: 'app_not_mounted' };
+      }
       // 已派发的 mutation 结果未知：禁止重试（可能已生效）。
       if (ar.dispatched) return { recoverable: false, blockReason: 'decision' };
       return irreversible
@@ -174,10 +183,12 @@ function blocked(
   reason: BlockReason,
   decisions: DecisionRecord[] = [],
   recoveries: RecoveryRecord[] = [],
+  detail?: string,
 ): CaseResult {
   return {
     status: 'blocked',
     reason,
+    ...(detail !== undefined && detail.length > 0 ? { reasonDetail: detail } : {}),
     ...(decisions.length > 0 ? { decisions } : {}),
     ...(recoveries.length > 0 ? { recoveries } : {}),
   };
@@ -300,7 +311,15 @@ export async function executeCase(
       while (ar.status !== 'ok') {
         const mapping = classifyFailure(ar, step.risk);
         if (!mapping.recoverable)
-          return blocked(mapping.blockReason ?? 'decision', decisions, recoveries);
+          return blocked(
+            mapping.blockReason ?? 'decision',
+            decisions,
+            recoveries,
+            // Issue #24：app_not_mounted 的可读明细（selector + 等待秒数）入档。
+            mapping.blockReason === 'app_not_mounted' && ar.status === 'timeout'
+              ? ar.message
+              : undefined,
+          );
 
         if (
           stepRecoveries >= MAX_RECOVERY_PER_STEP ||
