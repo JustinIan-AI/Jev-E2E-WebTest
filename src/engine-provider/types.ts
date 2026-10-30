@@ -160,6 +160,13 @@ export interface TimeoutActionResult {
   status: 'timeout';
   dispatched: boolean;
   deadlineMs?: number;
+  /**
+   * Issue #24：navigate 的应用就绪门超时（页面已加载、应用未挂载）。
+   * 独立错误码，供 classifyFailure 映射 BLOCKED(app_not_mounted)，
+   * 不靠 message 字符串匹配。
+   */
+  errorCode?: 'app_not_mounted';
+  message?: string;
 }
 export interface NavBlockedActionResult {
   kind: Action['kind'];

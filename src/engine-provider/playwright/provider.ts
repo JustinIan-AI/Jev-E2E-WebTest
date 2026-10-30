@@ -90,6 +90,12 @@ export class PlaywrightProvider implements EngineProvider {
   /** 单个 mutation 的动作截止（ms），默认 30s（§8.1 dispatch deadline）。 */
   private actionTimeoutMs = 30_000;
 
+  /** Issue #24：应用就绪门与 L1 miss 有限轮询的配置（确定性，不靠 networkidle）。 */
+  private appReadySelector?: string;
+  private appReadyTimeoutMs = 10_000;
+  private resolvePollMaxMs = 5_000;
+  private resolvePollIntervalMs = 250;
+
   private constructor(
     browser: Browser,
     userContext: BrowserContext,
@@ -109,6 +115,14 @@ export class PlaywrightProvider implements EngineProvider {
     locale?: string;
     timezoneId?: string;
     actionTimeoutMs?: number;
+    /** Issue #24：SUT 适配提供的应用就绪标志（如 `#root .ant-layout`）；缺省用挂载根兜底。 */
+    appReadySelector?: string;
+    /** Issue #24：就绪门超时（ms），默认 10000。 */
+    appReadyTimeoutMs?: number;
+    /** Issue #24：L1 miss 有限轮询窗口（ms），默认 5000；0 = 关闭轮询。 */
+    resolvePollMaxMs?: number;
+    /** Issue #24：轮询间隔（ms），默认 250。 */
+    resolvePollIntervalMs?: number;
   }): Promise<PlaywrightProvider> {
     const { browser, context } = await attach(options.cdpEndpoint);
     const provider = new PlaywrightProvider(
@@ -118,6 +132,19 @@ export class PlaywrightProvider implements EngineProvider {
     );
     if (options.actionTimeoutMs !== undefined) {
       provider.actionTimeoutMs = options.actionTimeoutMs;
+    }
+    // Issue #24：就绪门 / 轮询配置（SUT 适配层提供；缺省值即确定性默认）。
+    if (options.appReadySelector !== undefined) {
+      provider.appReadySelector = options.appReadySelector;
+    }
+    if (options.appReadyTimeoutMs !== undefined) {
+      provider.appReadyTimeoutMs = options.appReadyTimeoutMs;
+    }
+    if (options.resolvePollMaxMs !== undefined) {
+      provider.resolvePollMaxMs = options.resolvePollMaxMs;
+    }
+    if (options.resolvePollIntervalMs !== undefined) {
+      provider.resolvePollIntervalMs = options.resolvePollIntervalMs;
     }
 
     // SPA 上下文引导同样需要作用于「复用的用户 context」中由我们新建的页：
@@ -153,6 +180,52 @@ export class PlaywrightProvider implements EngineProvider {
     return page;
   }
 
+  /**
+   * Issue #24 应用就绪门：等「应用已首次渲染」，不是等网络空闲。
+   *
+   * - SUT 适配提供 `appReadySelector`（如 `#root .ant-layout`）→ 等该元素命中且非空；
+   * - 未提供 → 兜底：SPA 挂载根（`#root` / `#app` / `#__next`）任一有子节点；
+   * - 页面根本没有 SPA 挂载根 → 视为传统多页 / SSR，`domcontentloaded` 即就绪
+   *   （**不白等超时**，否则会把非 SPA 的 SUT 全部误判为未挂载）。
+   *
+   * 超时返回 `ready: false`（调用方据此产出 `app_not_mounted`），绝不抛异常。
+   */
+  private async waitForAppReady(page: Page): Promise<{ ready: boolean; detail: string }> {
+    const custom = this.appReadySelector ?? null;
+    const detail = custom ?? '#root|#app|#__next';
+    const timeout = this.appReadyTimeoutMs;
+    // timeout <= 0 显式关闭就绪门（对既有契约的向后兼容开关）。
+    if (timeout <= 0) return { ready: true, detail: 'gate disabled' };
+    try {
+      await page.waitForFunction(
+        (selector: string | null) => {
+          // 浏览器上下文执行：用 any 规避 provider 侧无 DOM lib 的类型噪音。
+          const doc = (globalThis as unknown as { document: any }).document;
+          const nonEmpty = (el: any): boolean =>
+            el.childElementCount > 0 || String(el.textContent ?? '').trim().length > 0;
+          if (selector !== null) {
+            const el = doc.querySelector(selector);
+            return el !== null && nonEmpty(el);
+          }
+          const roots = doc.querySelectorAll('#root, #app, #__next');
+          if (roots.length > 0) return Array.from(roots).some(nonEmpty);
+          return doc.body !== null && nonEmpty(doc.body);
+        },
+        custom,
+        { timeout },
+      );
+      return { ready: true, detail };
+    } catch {
+      return { ready: false, detail };
+    }
+  }
+
+  /** 就绪门失败 → 统一的可读原因（RUNTIME_ERROR / BLOCKED 共用措辞）。 */
+  private appNotMountedMessage(detail: string): string {
+    const seconds = (this.appReadyTimeoutMs / 1000).toFixed(1);
+    return `app_not_mounted: ${detail} 在 ${seconds}s 内未就绪`;
+  }
+
   /** 在复用的用户 context 中以前台标签页打开（会获得焦点 —— 前台执行臂）。 */
   async openForegroundTab(url: string): Promise<Page> {
     if (!isOriginAllowed(url, this.originsAllowlist)) {
@@ -160,6 +233,9 @@ export class PlaywrightProvider implements EngineProvider {
     }
     const page = this.trackPage(await this.userContext.newPage());
     await page.goto(url, { waitUntil: 'domcontentloaded' });
+    // Issue #24：就绪门（bootstrap 路径无 case 可判定 → 抛错由上层记 RUNTIME_ERROR）。
+    const gate = await this.waitForAppReady(page);
+    if (!gate.ready) throw new Error(this.appNotMountedMessage(gate.detail));
     this.active = page;
     return page;
   }
@@ -189,6 +265,9 @@ export class PlaywrightProvider implements EngineProvider {
     this.ownedContexts.add(context);
     const page = this.trackPage(await context.newPage());
     await page.goto(url, { waitUntil: 'domcontentloaded' });
+    // Issue #24：就绪门（bootstrap 路径无 case 可判定 → 抛错由上层记 RUNTIME_ERROR）。
+    const gate = await this.waitForAppReady(page);
+    if (!gate.ready) throw new Error(this.appNotMountedMessage(gate.detail));
     this.active = page;
     return page;
   }
@@ -204,6 +283,26 @@ export class PlaywrightProvider implements EngineProvider {
     }
     if (mode === 'L2') return this.resolveByFingerprint(page, target);
 
+    // Issue #24：就绪门只保证「应用已挂载」，不保证局部组件已渲染（菜单展开、
+    // 懒加载、弹窗表单）。动作目标 miss 后在固定窗口内重查（只读查询，不违反
+    // 铁律 5——禁的是已派发 mutation 的重试）；耗尽仍 miss 才判死。
+    const deadline = Date.now() + Math.max(0, this.resolvePollMaxMs);
+    for (;;) {
+      const attempt = await this.resolveL1(page, target);
+      if (attempt.status !== 'miss') return attempt;
+      if (Date.now() >= deadline) return attempt;
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.max(1, this.resolvePollIntervalMs)),
+      );
+    }
+  }
+
+  /**
+   * L1 单次定位（多通道按序尝试）。**调用方决定是否轮询**：
+   * resolve（动作目标）轮询；checkAssertion（断言）不轮询——`absent` 类断言
+   * 若也等轮询窗口，等于把「不存在的负向断言」拖成 5s，且会掩盖真实状态。
+   */
+  private async resolveL1(page: Page, target: SemanticTarget): Promise<ResolveResult> {
     const exact = target.match !== 'substring';
     let locator: Locator;
     let strategy: ResolvedTarget['strategy'];
@@ -475,6 +574,19 @@ export class PlaywrightProvider implements EngineProvider {
             waitUntil: 'domcontentloaded',
             timeout: this.actionTimeoutMs,
           });
+          // Issue #24：应用就绪门 —— domcontentloaded 早于 SPA 首次渲染，
+          // 超时返回 timeout + app_not_mounted（Runtime → BLOCKED(app_not_mounted)）。
+          const gate = await this.waitForAppReady(page);
+          if (!gate.ready) {
+            return {
+              kind: 'navigate',
+              status: 'timeout',
+              dispatched: true,
+              deadlineMs: this.appReadyTimeoutMs,
+              errorCode: 'app_not_mounted',
+              message: this.appNotMountedMessage(gate.detail),
+            };
+          }
           this.active = page;
           this.lastObservationId = `obs-${Date.now()}`;
           return { kind: 'navigate', status: 'ok', dispatched: true };
@@ -557,7 +669,8 @@ export class PlaywrightProvider implements EngineProvider {
       };
     }
 
-    const resolved = await this.resolve(spec.target, 'L1');
+    // Issue #24：断言定位**不轮询**（absent 断言不该等 5s 才敢判通过）。
+    const resolved = await this.resolveL1(this.activePage(), spec.target);
     if (resolved.status === 'miss') {
       if (spec.kind === 'absent') {
         return { kind: 'absent', passed: true, status: 'passed' };
