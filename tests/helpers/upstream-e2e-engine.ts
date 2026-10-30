@@ -26,6 +26,8 @@ import type {
 export interface VirtualElement {
   role: string;
   name: string;
+  /** Issue #25：占位符通道（getByPlaceholder 等价能力）；缺省视为无占位符。 */
+  placeholder?: string;
   text?: string;
   value?: string;
   visible: boolean;
@@ -170,6 +172,11 @@ export class UpstreamE2eEngineDouble implements UpstreamE2eEngine {
 
   private match(el: VirtualElement, req: UpstreamLocateRequest): boolean {
     if (req.role !== undefined && el.role !== req.role) return false;
+    // Issue #25：占位符通道独立于 name/text —— 有该通道时只按占位符判等/包含。
+    if (req.placeholder !== undefined) {
+      const ph = el.placeholder ?? '';
+      return req.match === 'substring' ? ph.includes(req.placeholder) : ph === req.placeholder;
+    }
     const wanted = req.name ?? req.text;
     if (wanted !== undefined) {
       const haystack = `${el.name}\n${el.text ?? ''}`;

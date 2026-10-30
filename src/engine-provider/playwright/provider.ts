@@ -205,31 +205,58 @@ export class PlaywrightProvider implements EngineProvider {
     if (mode === 'L2') return this.resolveByFingerprint(page, target);
 
     const exact = target.match !== 'substring';
-    let locator: Locator;
-    let strategy: ResolvedTarget['strategy'];
+
+    // Issue #25：多通道按序尝试（role > label > name > placeholder > text）。
+    // 单通道 if/else 会「label 未命中即判死」，而 fill 目标的 label 通道与 text
+    // 通道本就互为兜底；命中多个仍走 ambiguous（铁律 6：禁 .first() 兜底，
+    // 也不换通道绕过歧义）。
+    const attempts: Array<{ locator: () => Locator; strategy: ResolvedTarget['strategy'] }> = [];
     if (target.role) {
-      const accessibleName = target.name ?? target.text;
-      locator = page.getByRole(target.role as Parameters<Page['getByRole']>[0], {
-        ...(accessibleName ? { name: accessibleName } : {}),
-        exact,
+      const accessibleName = target.name ?? target.label ?? target.text;
+      attempts.push({
+        locator: () =>
+          page.getByRole(target.role as Parameters<Page['getByRole']>[0], {
+            ...(accessibleName ? { name: accessibleName } : {}),
+            exact,
+          }),
+        strategy: 'role',
       });
-      strategy = 'role';
-    } else if (target.label) {
-      locator = page.getByLabel(target.label, { exact });
-      strategy = 'label';
-    } else if (target.text) {
-      locator = page.getByText(target.text, { exact });
-      strategy = 'text';
-    } else {
-      return { status: 'miss' };
     }
+    if (target.label) {
+      attempts.push({
+        locator: () => page.getByLabel(target.label!, { exact }),
+        strategy: 'label',
+      });
+    }
+    if (target.name && target.name !== target.label) {
+      attempts.push({
+        locator: () => page.getByLabel(target.name!, { exact }),
+        strategy: 'label',
+      });
+    }
+    if (target.placeholder) {
+      attempts.push({
+        locator: () => page.getByPlaceholder(target.placeholder!, { exact }),
+        strategy: 'placeholder',
+      });
+    }
+    if (target.text) {
+      attempts.push({
+        locator: () => page.getByText(target.text!, { exact }),
+        strategy: 'text',
+      });
+    }
+    if (attempts.length === 0) return { status: 'miss' };
 
-    const count = await locator.count();
-    if (count === 0) return { status: 'miss' };
-    if (count > 1) return { status: 'ambiguous', count }; // ★ 禁 .first() 兜底
-
-    const elementId = await this.registerResolved(page, locator);
-    return { status: 'resolved', mode: 'L1', elementId, strategy };
+    for (const attempt of attempts) {
+      const locator = attempt.locator();
+      const count = await locator.count();
+      if (count === 0) continue;
+      if (count > 1) return { status: 'ambiguous', count }; // ★ 禁 .first() 兜底
+      const elementId = await this.registerResolved(page, locator);
+      return { status: 'resolved', mode: 'L1', elementId, strategy: attempt.strategy };
+    }
+    return { status: 'miss' };
   }
 
   /** 解析登记：分配 elementId 并捕获节点身份锚点（Freshness 用，捕获失败仅降级为戳比对）。 */

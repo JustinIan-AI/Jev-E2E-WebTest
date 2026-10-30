@@ -36,6 +36,11 @@ export interface UpstreamObservation {
 export interface UpstreamLocateRequest {
   role?: string;
   name?: string;
+  /**
+   * Issue #25 可选通道：占位符文本（相当于 getByPlaceholder）。
+   * 上游未实现该字段时返回 missing —— 安全退化到 text 通道，不产生假命中。
+   */
+  placeholder?: string;
   text?: string;
   match?: 'exact' | 'substring';
 }

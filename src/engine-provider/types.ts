@@ -8,6 +8,8 @@ export interface SemanticTarget {
   role?: string;
   label?: string;
   name?: string;
+  /** 占位符文本通道（Issue #25：input 的提示文案在 placeholder 属性，text 通道搜不到）。 */
+  placeholder?: string;
   text?: string;
   match?: 'exact' | 'substring';
   /** L2 指纹（Task 5）。 */
@@ -34,7 +36,8 @@ export type ResolveStatus = 'miss' | 'resolved' | 'ambiguous';
 /** 统一形状的 ResolvedTarget（Action.schema target 字段）。 */
 export interface ResolvedTarget {
   elementId: string | number;
-  strategy: 'role' | 'label' | 'text' | 'fingerprint' | 'model';
+  /** placeholder 为 Issue #25 新增通道（与 label 同属表单命名属性）。 */
+  strategy: 'role' | 'label' | 'placeholder' | 'text' | 'fingerprint' | 'model';
   confidence?: number;
 }
 

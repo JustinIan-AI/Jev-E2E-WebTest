@@ -38,6 +38,7 @@ import { absorbUpstreamAssertion } from './error-adapter.js';
 import type {
   UpstreamE2eEngine,
   UpstreamE2eEngineConfig,
+  UpstreamLocateRequest,
 } from './upstream.js';
 
 export interface E2eProviderConnectOptions {
@@ -185,26 +186,20 @@ export class E2eProvider implements EngineProvider {
       return { status: 'miss' };
     }
 
-    const located = await this.engine.locate({
-      ...(target.role !== undefined ? { role: target.role } : {}),
-      ...(target.name !== undefined ? { name: target.name } : {}),
-      ...(target.name === undefined && target.text !== undefined
-        ? { text: target.text }
-        : {}),
-      match: target.match ?? 'exact',
-    });
+    // Issue #25：多通道按序定位（role > label > name > placeholder > text）。
+    const located = await this.locateByChannels(target);
     switch (located.status) {
-      case 'found':
+      case 'resolved':
         return {
           status: 'resolved',
           mode: 'L1',
-          elementId: this.register(located.elementId!),
-          strategy: target.role !== undefined ? 'role' : 'text',
+          elementId: this.register(located.elementId),
+          strategy: located.strategy,
         };
       case 'missing':
         return { status: 'miss' };
       case 'ambiguous':
-        return { status: 'ambiguous', count: located.count ?? 0 };
+        return { status: 'ambiguous', count: located.count };
     }
   }
 
@@ -300,8 +295,65 @@ export class E2eProvider implements EngineProvider {
   }
 
   /**
+   * Issue #25：多通道按序定位（role > label > name > placeholder > text）。
+   *
+   * - 每通道独立查询上游 `locate`；命中即停（先具体后宽泛）；
+   * - **某通道命中多个 → ambiguous 立即返回**：铁律 6——目标歧义即 BLOCKED，
+   *   既不取第一个，也不换通道绕过歧义（换通道=静默改变语义）；
+   * - 全部通道 missing → miss（上层 BLOCKED(decision)）；
+   * - 空目标（所有通道字段都缺省）不查询：无字段的 locate 会命中全部元素。
+   *
+   * label/name 都走上游 `name`（可访问名）通道——label 关联的 input 其可访问名
+   * 就是 label 文本；placeholder 走上游可选能力，未实现时返回 missing 安全退化。
+   */
+  private async locateByChannels(
+    target: SemanticTarget,
+  ): Promise<
+    | { status: 'resolved'; elementId: string | number; strategy: ResolvedTarget['strategy'] }
+    | { status: 'ambiguous'; count: number }
+    | { status: 'missing' }
+  > {
+    const match = target.match ?? 'exact';
+    const queries: Array<{
+      query: UpstreamLocateRequest;
+      strategy: ResolvedTarget['strategy'];
+    }> = [];
+    const seen = new Set<string>();
+    const push = (query: UpstreamLocateRequest, strategy: ResolvedTarget['strategy']): void => {
+      const key = JSON.stringify(query);
+      if (seen.has(key)) return;
+      seen.add(key);
+      queries.push({ query, strategy });
+    };
+
+    if (target.role !== undefined) {
+      const named = target.name ?? target.label ?? target.text;
+      push({ role: target.role, ...(named !== undefined ? { name: named } : {}), match }, 'role');
+    }
+    if (target.label !== undefined) push({ name: target.label, match }, 'label');
+    if (target.name !== undefined) push({ name: target.name, match }, 'label');
+    if (target.placeholder !== undefined) push({ placeholder: target.placeholder, match }, 'placeholder');
+    if (target.text !== undefined) push({ text: target.text, match }, 'text');
+
+    if (queries.length === 0) return { status: 'missing' };
+
+    for (const { query, strategy } of queries) {
+      const located = await this.engine.locate(query);
+      if (located.status === 'found') {
+        return { status: 'resolved', elementId: located.elementId!, strategy };
+      }
+      if (located.status === 'ambiguous') {
+        return { status: 'ambiguous', count: located.count ?? 0 };
+      }
+    }
+    return { status: 'missing' };
+  }
+
+  /**
    * Freshness（Runtime 要求的能力）：对目标重新定位，命中同一上游元素才算新鲜。
    * 定位未命中 / 命中不同元素 → 不新鲜（drift 由 Runtime 统一处置）。
+   * Issue #25：与 resolve 共用同一多通道逻辑，避免「resolve 走 label 通道、
+   * freshness 只走 text 通道」造成的 drift 假阳性。
    */
   async verifyFreshness(
     target: SemanticTarget,
@@ -309,15 +361,10 @@ export class E2eProvider implements EngineProvider {
   ): Promise<boolean> {
     const expected = this.upstreamIdOf(resolved.elementId);
     if (expected === undefined) return false;
-    const located = await this.engine.locate({
-      ...(target.role !== undefined ? { role: target.role } : {}),
-      ...(target.name !== undefined ? { name: target.name } : {}),
-      ...(target.name === undefined && target.text !== undefined
-        ? { text: target.text }
-        : {}),
-      match: target.match ?? 'exact',
-    });
-    return located.status === 'found' && String(located.elementId) === String(expected);
+    const located = await this.locateByChannels(target);
+    return (
+      located.status === 'resolved' && String(located.elementId) === String(expected)
+    );
   }
 
   /** ★ 只断连：dispose 上游引擎实例；幂等。 */
