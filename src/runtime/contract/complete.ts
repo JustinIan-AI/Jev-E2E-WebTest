@@ -418,14 +418,24 @@ export function completeDraft(input: {
       }
     }
 
-    // R4 收尾：仍为 irreversible 的步骤必须带 postcondition。
-    // 只取严格位于该步骤之后的最近一条断言；取不到则降级为可逆（保守，不阻断）。
-    contractSteps.forEach((step, stepIndex) => {
-      if (step.risk !== 'irreversible') return;
+    // R4 收尾（Issue #26 重写）：irreversible 步骤的 postcondition 必须是【专属】断言——
+    // 严格位于其后、且先于下一个 irreversible 步骤的最近一条断言；取不到则降级为
+    // 可逆（保守，不阻断）。多条 irreversible 步骤共享同一条断言时，该断言只对
+    // 最后一个 irreversible 成立；挂在更早的步骤上必然失败 → BLOCKED(postcondition)。
+    const irreversibleIndexes = contractSteps
+      .map((s, i) => (s.risk === 'irreversible' ? i : -1))
+      .filter((i) => i >= 0);
+
+    irreversibleIndexes.forEach((stepIndex, k) => {
+      const step = contractSteps[stepIndex]!;
       if (step.postcondition !== undefined && step.postcondition.length > 0) return;
-      const followingIndex = assertionOrigins.findIndex((origin) => origin > stepIndex);
-      if (followingIndex >= 0) {
-        step.postcondition = [domAssertions[followingIndex]!];
+      const nextIrreversible = irreversibleIndexes[k + 1];
+      const exclusiveIndex = assertionOrigins.findIndex(
+        (origin) =>
+          origin > stepIndex && (nextIrreversible === undefined || origin < nextIrreversible),
+      );
+      if (exclusiveIndex >= 0) {
+        step.postcondition = [domAssertions[exclusiveIndex]!];
       } else {
         step.risk = 'reversible';
       }
