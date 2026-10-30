@@ -24,13 +24,23 @@ Step vocabulary (closed set, do not invent other actions):
 - Every interactive step MUST start with one of these verbs: click, fill, select, scroll, wait, navigate, assert only
 - Put the semantic target phrase in double quotes, then the action value (if any) in another pair of double quotes.
   Target comes BEFORE the value.
-  Good: fill in "username input field" with "zhangsan"; select "country dropdown" with "China"; click "confirm button"; navigate "login page"; scroll "order list"; wait "submit button"; assert only "welcome banner" is visible
+  Good: fill in "username input field" with "zhangsan"; select "country dropdown" with "China"; click "confirm button"; navigate "https://<base-url>/login"; scroll "order list"; wait "submit button"; assert only "welcome banner" is visible
   Bad patterns (never produce them): subject-prefixed sentences (first-person or actor-prefixed), or value-first ordering.
 - Do not use subject prefixes. Start directly with the verb, never with a first-person pronoun or an actor noun.
 - Targets are semantic phrases only: no CSS selectors, XPath, coordinates, or JavaScript.
+- navigate must carry a full absolute URL (https://...). To reach a page through its entry or menu item, use click on that entry's label — never pass a page name to navigate.
 - Do not use Background for setup. Do not phrase preconditions as already-performed action steps
   (avoid logged-in or already-created-state written as prior actions, in either English or Chinese).
-  Express pre-existing state through identity/setup declarations instead of action steps.`;
+  Express pre-existing state through identity/setup declarations instead of action steps.
+
+Hard constraints with counter-examples (the downstream mapper rejects these patterns):
+- Preconditions are NOT assertions. Never write: Given assert only "current login identity" is "administrator" ❌
+  Login identity is declared by identity/credentials; a Given step must be an executable action, not an assertion.
+- Assertions must target locatable page elements (visible text, labels, values, checked state). Never write:
+  assert only "page presentation form" is "standalone page" ❌
+  Design concepts such as presentation form, layout style, or architecture are not page elements.
+- Data preconditions (for example, a user that must exist beforehand) are not Given steps: create the data
+  inside the scenario with When steps, or declare a pre-provisioned account in identity.`;
 
     const scenarios = input.scenarios
       .map((s) => {
