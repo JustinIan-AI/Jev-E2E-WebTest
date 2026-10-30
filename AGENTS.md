@@ -29,6 +29,10 @@
 - 关键规则：
   - **R4**：`risk=irreversible` 的步骤必须有非空 `postcondition`，且该断言必须严格位于该步骤**之后**；取不到则保守降级 `reversible`。
   - **R7**：`target` 禁止 selector / xpath / 坐标 / JS，只允许语义短语。
+  - **入口依赖边界（F4）**：`src/cli/index.ts` 顶层禁止静态 import 执行臂
+    （`run-handler` / `engine-provider/playwright`）。`run` 命令经 `loadDefaultRunHandler()`
+    按需加载；门禁为 `tests/integration/cli-module-graph.test.ts`（模块图双向 + 自证断言，
+    **不是秒表门限** —— 启动耗时受 CI 机器差异影响，不能当判据）。
 - 不新增运行时第三方依赖（沿用现有 `yaml` / `ajv` 等）；如需新增必须先说明并经确认。
 
 ## 4. 标准质量门禁（每次交付必须全绿）

@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
+    "bench:startup": "node scripts/bench-cli-startup.mjs",
     "pack:offline": "tsx scripts/build-offline-package.ts",
     "idwth": "tsx src/cli/index.ts"
   },

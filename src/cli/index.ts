@@ -19,6 +19,7 @@ import {
   parseReportArgs,
   parseRunOptions,
   type CliDeps,
+  type CommandHandler,
   type DoctorContext,
   type ReplayContext,
   type ReportContext,
@@ -26,7 +27,6 @@ import {
 } from './commands.js';
 import { EXIT_CODES } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
-import { defaultRunHandler } from './run-handler.js';
 import { RUNS_DIR } from './paths.js';
 import { ContractConfigError, loadContractFile } from '../runtime/contract/loader.js';
 import { validateContract } from '../runtime/contract/validate.js';
@@ -330,6 +330,24 @@ async function cmdValidate(rest: readonly string[], cwd: string): Promise<ExitCo
 // run
 // ---------------------------------------------------------------------------
 
+/**
+ * 执行臂按需加载点（F4 · 全仓唯一入口）。
+ *
+ * `run-handler` 会静态拉入 `engine-provider/playwright` → `playwright-core`，实测
+ * 占 CLI 启动开销的 ~80%（0.13s / 0.16s，模块图 87 → 55）。**顶层禁止静态 import
+ * 它**，否则 `--version`、`validate`、`complete` 这些根本用不到浏览器的命令都要为
+ * 它付账。门禁：`tests/integration/cli-module-graph.test.ts`（双向 + 自证断言）。
+ *
+ * 不变量：
+ *  1. 只在 `cmdRun` 内调用。
+ *  2. 加载失败必须向上抛，由 `mapError` 落成 RUNTIME_ERROR(4)；禁止吞掉后返回 PASS。
+ *  3. 不做模块级缓存：一个进程只跑一条命令，缓存只会制造测试间串扰。
+ */
+async function loadDefaultRunHandler(): Promise<CommandHandler<RunContext>> {
+  const { defaultRunHandler } = await import('./run-handler.js');
+  return defaultRunHandler;
+}
+
 async function cmdRun(rest: readonly string[], cwd: string, deps: CliDeps): Promise<ExitCode> {
   const { contractPath, options } = parseRunOptions(rest);
   if (contractPath === undefined) {
@@ -339,7 +357,8 @@ async function cmdRun(rest: readonly string[], cwd: string, deps: CliDeps): Prom
   const loaded = await loadContractFile(path.resolve(cwd, contractPath));
 
   const ctx: RunContext = { cwd, loaded, options };
-  const handler = deps.run ?? defaultRunHandler;
+  // 显式注入的 deps.run 优先，且此时**不加载**真实执行臂（注入即替身，不该付真实成本）。
+  const handler = deps.run ?? (await loadDefaultRunHandler());
   return await handler(ctx);
 }
 
