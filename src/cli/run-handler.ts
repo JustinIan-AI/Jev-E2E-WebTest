@@ -115,11 +115,71 @@ interface ContractView {
 }
 
 /**
+ * 元素类型后缀（Issue #25）：契约目标常带「输入框 / 下拉框」等发明词，
+ * 页面里只有 label 原文（「用户名：」）或 placeholder。剥离后缀得核心短语。
+ * 只做确定性后缀剥离，不做同义词猜测（「用户名」≠「账号」，那是 L3 的活）。
+ */
+const TARGET_TYPE_SUFFIXES = [
+  // 中文
+  '文本输入框',
+  '输入字段',
+  '输入框',
+  '输入项',
+  '文本框',
+  '下拉选择框',
+  '下拉菜单',
+  '下拉框',
+  '选择框',
+  '选择器',
+  '复选框',
+  '单选框',
+  '选项卡',
+  '标签页',
+  '开关',
+  '按钮',
+  '链接',
+  // 英文（模板可能生成英文 target）
+  'input field',
+  'input box',
+  'text field',
+  'textbox',
+  'text box',
+  'dropdown',
+  'drop-down',
+  'select box',
+  'checkbox',
+  'radio button',
+  'toggle',
+  'switch',
+  'button',
+  'link',
+  'tab',
+];
+
+const TARGET_TYPE_SUFFIX_PATTERN = new RegExp(
+  `(?:\\s*(?:${TARGET_TYPE_SUFFIXES.join('|')}))$`,
+  'i',
+);
+
+/**
  * Contract target 字符串 → 语义目标。约定：人可读语义短语按「元素文本子串」
  * 匹配（与 judge 的 name/text 子串匹配同哲学）；禁止 selector（§3.4）。
+ *
+ * Issue #25：fill/select 传 `{ multiChannel: true }` 时从语义短语推导多通道
+ * —— text 通道（getByText）对 input 结构性失效（void 元素无文本内容），
+ * 因此剥离元素类型后缀得核心短语，同时生成 label（可访问名）与 placeholder
+ * 兜底通道。无后缀的短语不多造通道（不猜）。
  */
-function semanticTargetOf(target: string): SemanticTarget {
-  return { text: target, match: 'substring' };
+export function semanticTargetOf(
+  target: string,
+  options: { multiChannel?: boolean } = {},
+): SemanticTarget {
+  const original = target.trim();
+  if (options.multiChannel !== true) return { text: target, match: 'substring' };
+  const core = original.replace(TARGET_TYPE_SUFFIX_PATTERN, '').trim();
+  // 剥不出核心短语（无后缀 / 剥空）→ 保持单通道，绝不猜测
+  if (core.length === 0 || core === original) return { text: target, match: 'substring' };
+  return { label: core, placeholder: core, text: target, match: 'substring' };
 }
 
 /** postcondition 条目 → 引擎断言规格（equals 为 judge 侧命名，映射到 expected）。 */
@@ -138,7 +198,15 @@ function stepsOf(contract: ContractView): ExecutorStep[] {
     intent: step.intent,
     action: step.action,
     risk: step.risk,
-    ...(step.target !== undefined ? { target: semanticTargetOf(step.target) } : {}),
+    // Issue #25：fill/select 走多通道推导（text 通道对 input 结构性失效）；
+    // click / 断言保持 text 单通道——button 与提示文案都有可匹配文本。
+    ...(step.target !== undefined
+      ? {
+          target: semanticTargetOf(step.target, {
+            multiChannel: step.action === 'fill' || step.action === 'select',
+          }),
+        }
+      : {}),
     ...(step.value !== undefined ? { value: step.value } : {}),
     ...(step.url !== undefined ? { url: step.url } : {}),
     ...(step.ms !== undefined ? { ms: step.ms } : {}),
